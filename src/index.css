@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mobile optimizations - prevent zoom and scrolling issues */
+body {
+  overscroll-behavior: none; /* Prevent pull-to-refresh */
+  touch-action: pan-y; /* Allow vertical scroll only */
+  background: #000; /* Force black background */
+  -webkit-tap-highlight-color: transparent; /* Remove tap highlight on mobile */
+}
+
+/* Prevent text selection on mobile */
+* {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection in input fields */
+input, textarea {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  user-select: text;
+}
+
+/* Mobile marquee animation for long song titles */
+@keyframes marquee {
+  0% {
+    transform: translateX(0%);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+.marquee {
+  display: inline-block;
+  white-space: nowrap;
+  animation: marquee 15s linear infinite;
+}
+
+.marquee-container {
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+}
+
+/* Only apply marquee on mobile screens (sm breakpoint and below) */
+@media (max-width: 640px) {
+  .mobile-marquee {
+    overflow: hidden;
+    position: relative;
+    width: 100%;
+  }
+
+  .mobile-marquee-text {
+    display: inline-block;
+    white-space: nowrap;
+    padding-right: 2rem; /* Add space between loops */
+  }
+
+  /* Apply animation only if text overflows */
+  .mobile-marquee-text.overflow {
+    animation: marquee 12s linear infinite;
+  }
+}

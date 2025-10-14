@@ -1,0 +1,5 @@
+PLACEHOLDER_AUDIO_FILE
+<!-- This is a placeholder for the intro SFX audio file -->
+<!-- TODO: Replace with actual VibeBox party intro sound effect -->
+<!-- Expected: 2-3 second audio clip in MP3 format -->
+<!-- For now, the app will use a fallback beep sound or skip SFX if file not found -->
