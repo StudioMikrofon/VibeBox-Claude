@@ -88,39 +88,125 @@ const MusicPlayer = memo(function MusicPlayer({
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const loadSongTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 🔴 NEW: Separate broadcast and sync intervals
+  const broadcastIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
   const primaryPlayerRef = activePlayer === 1 ? player1Ref : player2Ref;
 
-  // Guest Sync Logic - BUG FIX #1: Only sync if NOT the playback device
+  // Constants for playback sync
   const lastSyncTimestampRef = useRef(0);
-  const SYNC_COOLDOWN = 2000; // 2 seconds minimum between syncs
+  const SYNC_COOLDOWN = 2000; // 2s cooldown between sync corrections
+  const BROADCAST_INTERVAL = 1000; // Broadcast position every 1s
+  const SYNC_CHECK_INTERVAL = 2000; // Check sync every 2s
+  const DRIFT_THRESHOLD = 3.0; // Max 3s drift before correction
 
+  // 🔴 NEW: Clear ALL playback timers (complete isolation)
+  const clearAllPlaybackTimers = () => {
+    console.log('🧹 Clearing all playback timers');
+
+    if (broadcastIntervalRef.current) {
+      clearInterval(broadcastIntervalRef.current);
+      broadcastIntervalRef.current = null;
+    }
+
+    if (syncIntervalRef.current) {
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
+    }
+
+    if (fadeIntervalRef.current) {
+      clearInterval(fadeIntervalRef.current);
+      fadeIntervalRef.current = null;
+    }
+
+    if (checkIntervalRef.current) {
+      clearInterval(checkIntervalRef.current);
+      checkIntervalRef.current = null;
+    }
+
+    console.log('✅ All playback timers cleared');
+  };
+
+  // 🔴 NEW: Broadcast interval (ONLY for playback device)
   useEffect(() => {
-    // ✅ CRITICAL: Only sync if you're NOT the playback device
-    if (!isHost && !isPlaybackDevice && isReady && syncTime !== undefined) {
+    if (!isReady || !isPlaybackDevice || !onTimeUpdate) {
+      if (broadcastIntervalRef.current) {
+        clearInterval(broadcastIntervalRef.current);
+        broadcastIntervalRef.current = null;
+      }
+      return;
+    }
+
+    console.log('📡 Starting broadcast mode (1s interval)');
+
+    broadcastIntervalRef.current = setInterval(() => {
+      const player = primaryPlayerRef.current;
+      if (!player || typeof player.getCurrentTime !== 'function') return;
+
+      const currentTime = player.getCurrentTime();
+
+      // 🔴 CRITICAL: Broadcast syncTime as Date.now() - (currentTime * 1000)
+      const syncTime = Date.now() - (currentTime * 1000);
+
+      onTimeUpdate(syncTime);
+
+      console.log(`📡 Broadcasting syncTime: ${syncTime}, currentTime: ${currentTime.toFixed(1)}s`);
+    }, BROADCAST_INTERVAL);
+
+    return () => {
+      if (broadcastIntervalRef.current) {
+        clearInterval(broadcastIntervalRef.current);
+        broadcastIntervalRef.current = null;
+      }
+    };
+  }, [isReady, isPlaybackDevice, onTimeUpdate, activePlayer]);
+
+  // 🔴 NEW: Sync interval (ONLY for non-playback devices)
+  useEffect(() => {
+    if (!isReady || isPlaybackDevice || isHost || syncTime === undefined) {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+      return;
+    }
+
+    console.log('🔄 Starting sync mode (2s interval)');
+
+    syncIntervalRef.current = setInterval(() => {
       const now = Date.now();
 
-      // ✅ Cooldown check to prevent infinite loop
+      // Cooldown check to prevent aggressive syncing
       if (now - lastSyncTimestampRef.current < SYNC_COOLDOWN) {
-        console.log('⏳ Sync cooldown active, skipping...');
         return;
       }
 
       const player = primaryPlayerRef.current;
-      if (player && typeof player.getCurrentTime === 'function') {
-        const playerTime = player.getCurrentTime();
-        const timeDiff = Math.abs(playerTime - syncTime);
+      if (!player || typeof player.getCurrentTime !== 'function') return;
 
-        // ✅ Only sync if drift > 3 seconds (less aggressive)
-        if (timeDiff > 3.0) {
-          console.log(`🔄 Syncing guest player: Host is at ${syncTime.toFixed(1)}s, Guest is at ${playerTime.toFixed(1)}s. Drift: ${timeDiff.toFixed(1)}s`);
-          player.seekTo(syncTime, true);
-          lastSyncTimestampRef.current = now;
-        }
+      const playerTime = player.getCurrentTime();
+
+      // 🔴 CRITICAL: Calculate expected time from syncTime
+      const expectedTime = (now - syncTime) / 1000;
+      const drift = Math.abs(playerTime - expectedTime);
+
+      if (drift > DRIFT_THRESHOLD) {
+        console.log(`🔄 Drift detected: ${drift.toFixed(1)}s. Correcting...`);
+        console.log(`   Player: ${playerTime.toFixed(1)}s, Expected: ${expectedTime.toFixed(1)}s`);
+
+        player.seekTo(expectedTime, true);
+        lastSyncTimestampRef.current = now;
       }
-    } else if (isPlaybackDevice) {
-      console.log('✅ I am playback device, NOT syncing to host');
-    }
-  }, [syncTime, isHost, isPlaybackDevice, isReady, activePlayer]);
+    }, SYNC_CHECK_INTERVAL);
+
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+        syncIntervalRef.current = null;
+      }
+    };
+  }, [isReady, isPlaybackDevice, isHost, syncTime, activePlayer]);
 
   // Save playback progress every 5 seconds
   useEffect(() => {
@@ -367,8 +453,8 @@ const MusicPlayer = memo(function MusicPlayer({
     };
 
     return () => {
-      if (checkIntervalRef.current) clearInterval(checkIntervalRef.current);
-      if (fadeIntervalRef.current) clearInterval(fadeIntervalRef.current);
+      console.log('🧹 Component unmounting, cleaning up all timers');
+      clearAllPlaybackTimers();
       if (progressIntervalRef.current) clearInterval(progressIntervalRef.current);
       if (normalizationIntervalRef.current) clearInterval(normalizationIntervalRef.current);
       if (loadSongTimeoutRef.current) clearTimeout(loadSongTimeoutRef.current);
@@ -469,6 +555,8 @@ const MusicPlayer = memo(function MusicPlayer({
     }
   }, [isPlaying]);
 
+  // 🔴 UPDATED: Progress interval ONLY updates UI (no broadcasting)
+  // Broadcasting is now handled by dedicated broadcast interval above
   useEffect(() => {
     if (!isReady) return;
     progressIntervalRef.current = setInterval(() => {
@@ -479,18 +567,13 @@ const MusicPlayer = memo(function MusicPlayer({
         if (time > 0 && dur > 0) {
           setCurrentTime(time);
           setDuration(dur);
-
-          // ✅ BUG FIX #1: Broadcast ONLY if you're the playback device (host or assigned guest)
-          if (isPlaybackDevice && onTimeUpdate) {
-            onTimeUpdate(time);
-          }
         }
       }
     }, 500);
     return () => {
       if(progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
-  }, [isReady, activePlayer, isPlaybackDevice, onTimeUpdate]);
+  }, [isReady, activePlayer]);
 
   useEffect(() => {
     if (loadSongTimeoutRef.current) {

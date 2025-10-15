@@ -96,7 +96,7 @@ export default function HostDashboard() {
   const [replyRecipient, setReplyRecipient] = useState<string>('');
   const [listenLocally, setListenLocally] = useState(true); // Host listens by default
 
-  const currentTimeRef = useRef<number>(0);
+  // 🔴 REMOVED: currentTimeRef (no longer needed, syncTime handled by MusicPlayer)
 
   const addToast = (toast: Omit<Toast, 'id'>) => {
     const newToast: Toast = {
@@ -304,23 +304,8 @@ export default function HostDashboard() {
     }
   }, [session?.history, previousSong]);
 
-  useEffect(() => {
-    if (!roomCode || !isPlaying || !session?.isPartyStarted) return;
-
-    const interval = setInterval(async () => {
-      if (currentTimeRef.current > 0) {
-        try {
-          await updateDoc(doc(db, 'sessions', roomCode), {
-            currentTime: currentTimeRef.current
-          });
-        } catch (error) {
-          console.error('Error updating currentTime:', error);
-        }
-      }
-    }, 2000);
-
-    return () => clearInterval(interval);
-  }, [roomCode, isPlaying, session?.isPartyStarted]);
+  // 🔴 REMOVED: Old currentTime broadcast (now handled by MusicPlayer's broadcast interval)
+  // MusicPlayer now broadcasts syncTime = Date.now() - (currentTime * 1000) every 1s
 
   const handleAddSong = async (song: Song) => {
     if (!roomCode) return;
@@ -425,12 +410,10 @@ export default function HostDashboard() {
 
     const newIsPlaying = !isPlaying;
 
-    // If pausing, clear all crossfade timers (done in MusicPlayer)
-    // If resuming, ensure syncTime is updated
+    // 🔴 UPDATED: Removed currentTime update (syncTime handled by MusicPlayer broadcast)
 
     await updateDoc(doc(db, 'sessions', roomCode), {
-      isPlaying: newIsPlaying,
-      currentTime: currentTimeRef.current // Update sync time on pause
+      isPlaying: newIsPlaying
     });
 
     console.log(`[HostDashboard] Play/Pause toggled: ${newIsPlaying}`);
@@ -622,7 +605,7 @@ export default function HostDashboard() {
       guestName, // New DJ
       currentSong || null,
       isPlaying,
-      currentTimeRef.current
+      0 // syncTime now broadcast by MusicPlayer
     );
 
     await updateDoc(doc(db, 'sessions', roomCode), {
@@ -667,7 +650,7 @@ export default function HostDashboard() {
       djName,
       currentSong || null,
       isPlaying,
-      currentTimeRef.current
+      0 // syncTime now broadcast by MusicPlayer
     );
 
     await updateDoc(doc(db, 'sessions', roomCode), {
@@ -780,7 +763,16 @@ export default function HostDashboard() {
               isHost={true}
               roomCode={roomCode}
               triggerCrossfade={triggerCrossfade}
-              onTimeUpdate={(time) => currentTimeRef.current = time}
+              onTimeUpdate={async (syncTime) => {
+                // 🔴 NEW: Receive syncTime from MusicPlayer and write to Firebase
+                // syncTime format: Date.now() - (currentTime * 1000)
+                if (!roomCode) return;
+                try {
+                  await updateDoc(doc(db, 'sessions', roomCode), { syncTime });
+                } catch (error) {
+                  console.error('Error updating syncTime:', error);
+                }
+              }}
             />
           )}
         </div>

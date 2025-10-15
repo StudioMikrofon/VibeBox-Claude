@@ -150,8 +150,10 @@ export default function GuestView() {
           setCurrentSong(data.currentSong || null);
           setIsPlaying(data.isPlaying || false);
 
-          if (typeof data.currentTime === 'number') {
-            setSyncTime(data.currentTime);
+          // 🔴 UPDATED: Read syncTime instead of currentTime
+          // syncTime format: Date.now() - (currentTime * 1000)
+          if (typeof data.syncTime === 'number') {
+            setSyncTime(data.syncTime);
           }
         });
 
