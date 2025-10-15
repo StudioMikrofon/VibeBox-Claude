@@ -348,9 +348,9 @@ export default function QueueSection({
   };
 
   return (
-    <div className="bg-gradient-to-br from-gray-900/80 to-black/60 border border-white/10 rounded-2xl p-4 md:p-6 h-full backdrop-blur-sm">
+    <div className="bg-gradient-to-br from-gray-900/80 to-black/60 border border-white/10 rounded-2xl p-4 md:p-6 max-h-[600px] lg:h-full backdrop-blur-sm flex flex-col">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 flex-shrink-0">
         <h3 className="text-xl md:text-2xl font-bold text-white flex items-center gap-3">
           <div className="p-2 bg-purple-500/20 rounded-lg">
             <Music2 className="w-5 h-5 md:w-6 md:h-6 text-purple-400" />
@@ -398,7 +398,7 @@ export default function QueueSection({
         </div>
       </div>
 
-      <div className="space-y-6">
+      <div className="space-y-6 overflow-y-auto flex-1 min-h-0">
         {/* Previously Played */}
         {previousSong && (
           <div className="mb-6">
