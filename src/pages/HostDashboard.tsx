@@ -761,6 +761,7 @@ export default function HostDashboard() {
               crossfadeDuration={settings.crossfadeDuration || 0}
               manualSkipCrossfade={settings.manualSkipCrossfade || 3}
               isHost={true}
+              isPlaybackDevice={playbackDevice === 'HOST'}
               roomCode={roomCode}
               triggerCrossfade={triggerCrossfade}
               onTimeUpdate={async (syncTime) => {

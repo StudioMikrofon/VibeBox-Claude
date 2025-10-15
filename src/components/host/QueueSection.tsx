@@ -82,7 +82,7 @@ function SortableQueueItem({
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-gray-800/50 rounded-lg p-3 md:p-4 hover:bg-gray-700 transition-colors ${isDragging ? 'shadow-2xl ring-2 ring-secondary z-50' : ''}`}
+      className={`bg-gray-800/50 rounded-lg p-3 md:p-4 hover:bg-gray-700 transition-colors ${isDragging ? 'shadow-2xl ring-4 ring-red-500 z-50 scale-105' : ''}`}
     >
       {/* DESKTOP LAYOUT */}
       <div className="hidden lg:flex items-center gap-2 md:gap-4">
@@ -354,7 +354,7 @@ export default function QueueSection({
     useSensor(TouchSensor, {
       activationConstraint: {
         delay: 300, // 300ms hold before drag starts
-        tolerance: 8, // Allow up to 8px movement during hold
+        tolerance: 20, // Allow up to 20px movement during hold (more forgiving on mobile)
       },
     }),
     useSensor(PointerSensor, {
