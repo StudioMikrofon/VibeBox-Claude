@@ -776,8 +776,8 @@ const MusicPlayer = memo(function MusicPlayer({
             onNormalizationToggle={() => setNormalization(!normalization)}
           />
 
-          {/* BUG FIX #3: LISTEN ON MY DEVICE BUTTON - ALWAYS VISIBLE FOR ALL USERS */}
-          {onToggleAudio && (
+          {/* ✅ BUG FIX #5: LISTEN ON MY DEVICE - ONLY FOR GUESTS */}
+          {!isHost && onToggleAudio && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
               <div className="flex items-center gap-2">
                 {audioEnabled ? (
