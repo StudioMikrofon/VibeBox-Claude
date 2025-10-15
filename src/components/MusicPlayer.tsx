@@ -130,11 +130,14 @@ const MusicPlayer = memo(function MusicPlayer({
 
   // 🔴 NEW: Broadcast interval (ONLY for playback device)
   useEffect(() => {
+    // 🔥 CRITICAL FIX: Clear old interval FIRST before starting new one!
+    if (broadcastIntervalRef.current) {
+      console.log('🧹 Clearing old broadcast interval before starting new one');
+      clearInterval(broadcastIntervalRef.current);
+      broadcastIntervalRef.current = null;
+    }
+
     if (!isReady || !isPlaybackDevice || !onTimeUpdate) {
-      if (broadcastIntervalRef.current) {
-        clearInterval(broadcastIntervalRef.current);
-        broadcastIntervalRef.current = null;
-      }
       return;
     }
 
@@ -156,6 +159,7 @@ const MusicPlayer = memo(function MusicPlayer({
 
     return () => {
       if (broadcastIntervalRef.current) {
+        console.log('🧹 Cleanup: clearing broadcast interval');
         clearInterval(broadcastIntervalRef.current);
         broadcastIntervalRef.current = null;
       }
@@ -164,11 +168,14 @@ const MusicPlayer = memo(function MusicPlayer({
 
   // 🔴 NEW: Sync interval (ONLY for non-playback devices)
   useEffect(() => {
+    // 🔥 CRITICAL FIX: Clear old interval FIRST before starting new one!
+    if (syncIntervalRef.current) {
+      console.log('🧹 Clearing old sync interval before starting new one');
+      clearInterval(syncIntervalRef.current);
+      syncIntervalRef.current = null;
+    }
+
     if (!isReady || isPlaybackDevice || isHost || syncTime === undefined) {
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-        syncIntervalRef.current = null;
-      }
       return;
     }
 
@@ -202,6 +209,7 @@ const MusicPlayer = memo(function MusicPlayer({
 
     return () => {
       if (syncIntervalRef.current) {
+        console.log('🧹 Cleanup: clearing sync interval');
         clearInterval(syncIntervalRef.current);
         syncIntervalRef.current = null;
       }
@@ -498,16 +506,17 @@ const MusicPlayer = memo(function MusicPlayer({
 
             // ✅ BUG FIX #2: Only playback device can auto-play
             if (isPlaying && isPlaybackDevice) {
-                console.log('▶️ Auto-playing initial song (playback device)');
+                console.log('▶️ Auto-playing initial song IMMEDIATELY (playback device)');
                 player.loadVideoById({ videoId, startSeconds: 0 });
                 player.setVolume(isMuted ? 0 : volume);
-                setTimeout(() => player.playVideo(), 1000);
+                // 🔴 IMMEDIATE PLAY - reduced from 1000ms to 400ms
+                setTimeout(() => player.playVideo(), 400);
             } else {
                 console.log('⏸️ NOT auto-playing initial song (not playback device or paused)');
                 player.cueVideoById({ videoId, startSeconds: 0 });
                 player.setVolume(isMuted ? 0 : volume);
             }
-        }, 500);
+        }, 200);
     }
 
     player1Ref.current = createPlayer('youtube-player-1', e => e.data === 0 && activePlayer === 1 && onSongEnd());
@@ -603,8 +612,9 @@ const MusicPlayer = memo(function MusicPlayer({
 
       // ✅ BUG FIX #2: Only playback device can auto-play
       if (isPlaying && isPlaybackDevice) {
-        console.log('▶️ Auto-playing song (isPlaying: true, isPlaybackDevice: true)');
-        setTimeout(() => player.playVideo(), 800);
+        console.log('▶️ Auto-playing song IMMEDIATELY (isPlaying: true, isPlaybackDevice: true)');
+        // 🔴 IMMEDIATE PLAY - reduced from 800ms to 300ms
+        setTimeout(() => player.playVideo(), 300);
       } else if (!isPlaybackDevice) {
         console.log('⏸️ NOT auto-playing (not playback device)');
       } else {
@@ -644,22 +654,20 @@ const MusicPlayer = memo(function MusicPlayer({
 
     console.log('🔄 isPlaying changed:', isPlaying, 'isPlaybackDevice:', isPlaybackDevice);
 
-    setTimeout(() => {
-      // ✅ BUG FIX #2: Only playback device controls actual playback
-      if (isPlaying && isPlaybackDevice) {
-        console.log('▶️ Calling playVideo() (playback device)');
-        player.playVideo?.();
-      } else if (!isPlaying && isPlaybackDevice) {
-        console.log('⏸️ Calling pauseVideo() (playback device)');
-        player.pauseVideo?.();
+    // 🔴 IMMEDIATE PLAYBACK - NO DELAY!
+    if (isPlaying && isPlaybackDevice) {
+      console.log('▶️ IMMEDIATE playVideo() call (playback device)');
+      player.playVideo?.();
+    } else if (!isPlaying && isPlaybackDevice) {
+      console.log('⏸️ IMMEDIATE pauseVideo() call (playback device)');
+      player.pauseVideo?.();
 
-        // Reset state on pause
-        resetPlaybackState();
-      } else if (!isPlaybackDevice) {
-        console.log('⏸️ Not playback device, pausing local player');
-        player.pauseVideo?.();
-      }
-    }, 300);
+      // Reset state on pause
+      resetPlaybackState();
+    } else if (!isPlaybackDevice) {
+      console.log('⏸️ Not playback device, pausing local player');
+      player.pauseVideo?.();
+    }
   }, [isPlaying, isReady, activePlayer, isPlaybackDevice]);
 
   useEffect(() => {
