@@ -6,7 +6,12 @@
       "Bash(npm install)",
       "Bash(npm run build)",
       "Bash(firebase deploy:*)",
-      "Bash(npm run preview)"
+      "Bash(npm run preview)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nFix all 7 critical bugs: sync loop, auto-play, UI responsiveness, and role management\n\nBug #1: Fixed infinite guest sync loop by implementing playback device validation\n- Added isPlaybackDevice check before syncing to prevent non-playback devices from creating loops\n- Implemented 2-second cooldown mechanism between sync operations\n- Increased drift threshold from 2s to 3s for less aggressive syncing\n- Only playback device broadcasts time updates to Firebase\n\nBug #2: Fixed auto-play after app re-entry\n- Added isPlaybackDevice validation in loadInitialSong and loadVideoById\n- Only playback device can trigger auto-play on initial load\n- Prevents unwanted playback when user reopens paused session\n\nBug #3: ''Listen on My Device'' toggle visibility\n- Already fixed in existing codebase (verified in lines 757-788)\n\nBug #4: DJ control transfer now activates playlist immediately\n- Auto-enables listenLocally when user becomes DJ in GuestView\n- New DJ gets immediate access to playback controls\n\nBug #5: Fixed party code overflow on mobile\n- Implemented responsive flex layout (flex-col on mobile, flex-row on desktop)\n- Party code positioned top on mobile, right side on desktop\n- Added responsive text sizes (text-lg md:text-2xl lg:text-3xl)\n\nBug #6: Guest list buttons visibility for all users\n- Added message button (💬) visible to ALL users\n- Kick button (❌) remains admin-only\n- Applied to both host and guest cards\n\nBug #7: Song title scroll on mobile devices\n- Applied existing CSS marquee classes to song titles\n- Used mobile-marquee and mobile-marquee-text classes\n- Works in both desktop and mobile layouts\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(git log:*)",
+      "Bash(git remote set-url:*)"
     ],
     "deny": [],
     "ask": []

@@ -1,4 +1,4 @@
-import { ArrowLeft, Music2, MessageCircle, Settings, Headphones, VolumeX } from 'lucide-react';
+import { ArrowLeft, Music2, Settings } from 'lucide-react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { db } from '../services/firebase';
@@ -79,7 +79,6 @@ export default function GuestView() {
   const [isUserAdmin, setIsUserAdmin] = useState(false);
   const [isDJ, setIsDJ] = useState(false);
   const [isPlaybackDevice, setIsPlaybackDevice] = useState(false);
-  const [showMessageDropdown, setShowMessageDropdown] = useState(false);
 
   const addToast = (toast: Omit<Toast, 'id'>) => {
     const newToast: Toast = {
@@ -678,30 +677,10 @@ export default function GuestView() {
           </button>
 
           <div className="flex items-center gap-2">
-            {/* Listen Locally Toggle */}
-            <button
-              onClick={() => {
-                setListenLocally(!listenLocally);
-                if (!listenLocally) {
-                  addToast({
-                    type: 'message',
-                    title: 'Local Playback Enabled',
-                    message: 'Audio is now playing on your device',
-                    autoDismiss: true,
-                    dismissTime: 3000
-                  });
-                }
-              }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-white transition-all ${
-                listenLocally
-                  ? 'bg-green-600 hover:bg-green-500'
-                  : 'bg-gray-700 hover:bg-gray-600'
-              }`}
-              title={listenLocally ? 'Stop listening locally' : 'Listen on my device'}
-            >
-              {listenLocally ? <Headphones className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-              <span className="hidden sm:inline">{listenLocally ? 'Listening' : 'Listen'}</span>
-            </button>
+            {/* ✅ BUG FIX #3 & #5: Removed duplicate "Listen on My Device" and "Messages" buttons */}
+            {/* These controls are now ONLY available: */}
+            {/* - "Listen on My Device" toggle: Inside MusicPlayer component */}
+            {/* - Messages: Via icons in GuestList next to each user */}
 
             {isUserAdmin && (
               <button
@@ -712,38 +691,6 @@ export default function GuestView() {
                 <Settings className="w-5 h-5" />
               </button>
             )}
-
-            <div className="relative">
-              <button
-                onClick={() => setShowMessageDropdown(!showMessageDropdown)}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition-colors"
-              >
-                <MessageCircle className="w-5 h-5" />
-                <span>Message</span>
-              </button>
-
-              {showMessageDropdown && (
-                <div className="absolute right-0 mt-2 w-64 bg-gray-800 border border-white/20 rounded-lg shadow-2xl z-50 max-h-96 overflow-y-auto">
-                  <div className="p-2">
-                    <p className="text-gray-400 text-xs px-3 py-2">Send message to:</p>
-                    {allUsers.map(user => (
-                      <button
-                        key={user}
-                        onClick={() => {
-                          setReplyRecipient(user);
-                          setShowQuickReply(true);
-                          setShowMessageDropdown(false);
-                        }}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-700 rounded-lg text-white transition-colors flex items-center gap-2"
-                      >
-                        {user === session.hostName && <span className="text-xs text-red-400">👑</span>}
-                        <span>{user}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         </div>
 
@@ -957,13 +904,13 @@ export default function GuestView() {
                     {session.djName === session.hostName && <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded" title="DJ Controls">🎧</span>}
                     {session.playbackDevice === 'HOST' && <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded" title="Playback Device">🔊</span>}
 
-                    {/* ✅ BUG FIX #6: Message button for host - visible to ALL users */}
+                    {/* ✅ BUG FIX: Message button for host - ALWAYS visible to ALL users */}
                     <button
                       onClick={() => {
                         setReplyRecipient(session.hostName);
                         setShowQuickReply(true);
                       }}
-                      className="opacity-0 group-hover:opacity-100 px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded transition-all"
+                      className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded transition-all"
                       title="Send message to host"
                     >
                       💬
@@ -993,14 +940,14 @@ export default function GuestView() {
                         {isSpeaker && <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded" title="Playback Device">🔊</span>}
                         {isAdmin && <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded" title="Admin Privileges">🛡️</span>}
 
-                        {/* ✅ BUG FIX #6: Message button visible to ALL users */}
+                        {/* ✅ BUG FIX: Message button ALWAYS visible to ALL users */}
                         {!isMe && (
                           <button
                             onClick={() => {
                               setReplyRecipient(guest);
                               setShowQuickReply(true);
                             }}
-                            className="opacity-0 group-hover:opacity-100 px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded transition-all"
+                            className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded transition-all"
                             title="Send message"
                           >
                             💬
