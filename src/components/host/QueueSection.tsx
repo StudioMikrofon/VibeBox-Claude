@@ -217,9 +217,9 @@ function SortableQueueItem({
       </div>
 
       {/* MOBILE LAYOUT */}
-      <div className="lg:hidden space-y-3">
-        {/* Red 1: Song Info */}
-        <div className="flex items-center gap-3">
+      <div className="lg:hidden space-y-2">
+        {/* Red 1: Song Info - thumbnail & title maksimalno lijevo */}
+        <div className="flex items-center gap-2">
           {/* Drag Handle - ZA HOSTA I DJ-A (Mobile) */}
           {(isDJ || isHost) && (
             <div
@@ -231,10 +231,6 @@ function SortableQueueItem({
             </div>
           )}
 
-          <div className="text-xl font-bold text-secondary w-6 text-center flex-shrink-0">
-            {getTrophyIcon(index)}
-          </div>
-
           {song.thumbnailUrl && (
             <img
               src={song.thumbnailUrl}
@@ -242,7 +238,7 @@ function SortableQueueItem({
               className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
             />
           )}
-          
+
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               {/* ✅ Marquee scrolling for long song titles on mobile */}
@@ -265,8 +261,12 @@ function SortableQueueItem({
           </div>
         </div>
 
-        {/* Red 2: Controls */}
+        {/* Red 2: Medal/Number + Controls */}
         <div className={`flex items-center gap-1.5 ${(isDJ || isHost) ? 'pl-[28px]' : 'pl-6'}`}>
+          {/* Medal/Number - lijevo od Play gumba */}
+          <div className="text-base font-bold text-secondary w-5 text-center flex-shrink-0">
+            {getTrophyIcon(index)}
+          </div>
           {/* Host Controls */}
           {isHost && (
             <div className="flex items-center gap-1">
@@ -353,7 +353,8 @@ export default function QueueSection({
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: {
-        distance: 8,
+        delay: 1000, // 1 second long-press for mobile drag
+        tolerance: 5, // Allow 5px movement during press
       },
     })
   );
