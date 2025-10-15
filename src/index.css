@@ -61,7 +61,8 @@ input, textarea {
   }
 
   /* Apply animation only if text overflows */
+  /* Duration is set via inline style for random speeds */
   .mobile-marquee-text.overflow {
-    animation: marquee 12s linear infinite;
+    animation: marquee linear infinite;
   }
 }

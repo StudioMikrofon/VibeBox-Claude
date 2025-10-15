@@ -4,6 +4,13 @@ import { formatDuration } from '../../utils/formatters';
 import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useMemo } from 'react';
+
+// Generate random scroll duration between 8-16 seconds based on song ID for consistency
+const getScrollDuration = (songId: string): number => {
+  const hash = songId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return 8 + (hash % 9); // Random between 8-16 seconds
+};
 
 interface QueueSectionProps {
   queue: Song[];
@@ -68,6 +75,9 @@ function SortableQueueItem({
 
   const isOwnSong = song.addedBy === hostName;
 
+  // Generate consistent random scroll duration for this song
+  const scrollDuration = useMemo(() => getScrollDuration(song.id), [song.id]);
+
   return (
     <div
       ref={setNodeRef}
@@ -106,7 +116,10 @@ function SortableQueueItem({
           <div className="flex items-center gap-2">
             {/* Mobile: marquee scrolling for long titles */}
             <div className="lg:hidden mobile-marquee">
-              <h3 className="text-white font-semibold text-sm mobile-marquee-text overflow">
+              <h3
+                className="text-white font-semibold text-sm mobile-marquee-text overflow"
+                style={{ animationDuration: `${scrollDuration}s` }}
+              >
                 {song.title} {song.title}
               </h3>
             </div>
@@ -223,7 +236,10 @@ function SortableQueueItem({
             <div className="flex items-center gap-2">
               {/* ✅ Marquee scrolling for long song titles on mobile */}
               <div className="mobile-marquee">
-                <h3 className="text-white font-semibold text-sm mobile-marquee-text overflow">
+                <h3
+                  className="text-white font-semibold text-sm mobile-marquee-text overflow"
+                  style={{ animationDuration: `${scrollDuration}s` }}
+                >
                   {song.title} {song.title}
                 </h3>
               </div>
