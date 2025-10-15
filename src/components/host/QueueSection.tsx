@@ -220,10 +220,21 @@ function SortableQueueItem({
       <div className="lg:hidden space-y-3">
         {/* Red 1: Song Info */}
         <div className="flex items-center gap-3">
+          {/* Drag Handle - ZA HOSTA I DJ-A (Mobile) */}
+          {(isDJ || isHost) && (
+            <div
+              {...attributes}
+              {...listeners}
+              className="cursor-grab active:cursor-grabbing p-1 hover:bg-white/10 rounded transition-colors flex-shrink-0"
+            >
+              <GripVertical className="w-4 h-4 text-gray-400" />
+            </div>
+          )}
+
           <div className="text-xl font-bold text-secondary w-6 text-center flex-shrink-0">
             {getTrophyIcon(index)}
           </div>
-          
+
           {song.thumbnailUrl && (
             <img
               src={song.thumbnailUrl}
@@ -255,7 +266,7 @@ function SortableQueueItem({
         </div>
 
         {/* Red 2: Controls */}
-        <div className="flex items-center justify-between gap-2 pl-9">
+        <div className={`flex items-center justify-between gap-2 ${(isDJ || isHost) ? 'pl-[52px]' : 'pl-9'}`}>
           {/* Host Controls */}
           {isHost && (
             <div className="flex items-center gap-2">
