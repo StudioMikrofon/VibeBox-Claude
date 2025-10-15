@@ -266,65 +266,65 @@ function SortableQueueItem({
         </div>
 
         {/* Red 2: Controls */}
-        <div className={`flex items-center justify-between gap-2 ${(isDJ || isHost) ? 'pl-[52px]' : 'pl-9'}`}>
+        <div className={`flex items-center gap-1.5 ${(isDJ || isHost) ? 'pl-[28px]' : 'pl-6'}`}>
           {/* Host Controls */}
           {isHost && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => onPlayNow(song)}
-                className="px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded flex items-center gap-1"
+                className="px-1.5 py-0.5 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-[10px] rounded flex items-center gap-0.5"
               >
-                <Play className="w-3 h-3" />
+                <Play className="w-2.5 h-2.5" />
                 Play
               </button>
               <button
                 onClick={() => onMoveToNext(song)}
-                className="px-2 py-1 bg-green-500/20 hover:bg-green-500/40 text-green-400 text-xs rounded flex items-center gap-1"
+                className="px-1.5 py-0.5 bg-green-500/20 hover:bg-green-500/40 text-green-400 text-[10px] rounded flex items-center gap-0.5"
               >
-                <SkipForward className="w-3 h-3" />
+                <SkipForward className="w-2.5 h-2.5" />
                 Next
               </button>
               <button
                 onClick={() => onRemove(song.id)}
-                className="p-1.5 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded"
+                className="p-0.5 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded"
               >
-                <Trash2 className="w-3 h-3" />
+                <Trash2 className="w-2.5 h-2.5" />
               </button>
             </div>
           )}
 
           {/* Voting */}
           {allowVoting && !isOwnSong && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 onClick={() => onVote(song.id, 'up')}
-                className={`p-1.5 rounded transition-all ${
+                className={`p-1 rounded transition-all ${
                   song.upvotes?.includes(hostName)
                     ? 'bg-green-500 text-white'
                     : 'bg-green-500/20 text-green-400'
                 }`}
               >
-                <ChevronUp className="w-4 h-4" />
+                <ChevronUp className="w-3 h-3" />
               </button>
-              <div className="font-bold text-sm min-w-[30px] text-center text-white">
+              <div className="font-bold text-xs min-w-[20px] text-center text-white">
                 {song.votes ?? 0}
               </div>
               <button
                 onClick={() => onVote(song.id, 'down')}
-                className={`p-1.5 rounded transition-all ${
+                className={`p-1 rounded transition-all ${
                   song.downvotes?.includes(hostName)
                     ? 'bg-red-500 text-white'
                     : 'bg-red-500/20 text-red-400'
                 }`}
               >
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-3 h-3" />
               </button>
             </div>
           )}
 
           {/* Own song - just show votes */}
           {isOwnSong && (
-            <div className="text-sm text-gray-400">
+            <div className="text-xs text-gray-400">
               {song.votes ?? 0} votes
             </div>
           )}
