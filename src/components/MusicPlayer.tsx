@@ -90,21 +90,37 @@ const MusicPlayer = memo(function MusicPlayer({
 
   const primaryPlayerRef = activePlayer === 1 ? player1Ref : player2Ref;
 
-  // Guest Sync Logic
+  // Guest Sync Logic - BUG FIX #1: Only sync if NOT the playback device
+  const lastSyncTimestampRef = useRef(0);
+  const SYNC_COOLDOWN = 2000; // 2 seconds minimum between syncs
+
   useEffect(() => {
-    if (!isHost && isReady && syncTime !== undefined) {
+    // ✅ CRITICAL: Only sync if you're NOT the playback device
+    if (!isHost && !isPlaybackDevice && isReady && syncTime !== undefined) {
+      const now = Date.now();
+
+      // ✅ Cooldown check to prevent infinite loop
+      if (now - lastSyncTimestampRef.current < SYNC_COOLDOWN) {
+        console.log('⏳ Sync cooldown active, skipping...');
+        return;
+      }
+
       const player = primaryPlayerRef.current;
       if (player && typeof player.getCurrentTime === 'function') {
         const playerTime = player.getCurrentTime();
         const timeDiff = Math.abs(playerTime - syncTime);
 
-        if (timeDiff > 2) {
-          console.log(`🔄 Syncing guest player: Host is at ${syncTime.toFixed(1)}s, Guest is at ${playerTime.toFixed(1)}s. Seeking...`);
+        // ✅ Only sync if drift > 3 seconds (less aggressive)
+        if (timeDiff > 3.0) {
+          console.log(`🔄 Syncing guest player: Host is at ${syncTime.toFixed(1)}s, Guest is at ${playerTime.toFixed(1)}s. Drift: ${timeDiff.toFixed(1)}s`);
           player.seekTo(syncTime, true);
+          lastSyncTimestampRef.current = now;
         }
       }
+    } else if (isPlaybackDevice) {
+      console.log('✅ I am playback device, NOT syncing to host');
     }
-  }, [syncTime, isHost, isReady, activePlayer]);
+  }, [syncTime, isHost, isPlaybackDevice, isReady, activePlayer]);
 
   // Save playback progress every 5 seconds
   useEffect(() => {
@@ -392,15 +408,16 @@ const MusicPlayer = memo(function MusicPlayer({
         const videoId = currentSong!.id.replace('youtube-', '');
         currentSongIdRef.current = currentSong!.id;
         setTimeout(() => {
-            console.log('🔍 Initial load - isPlaying:', isPlaying);
-            
-            if (isPlaying) {
-                console.log('▶️ Auto-playing initial song (using loadVideoById)');
+            console.log('🔍 Initial load - isPlaying:', isPlaying, 'isPlaybackDevice:', isPlaybackDevice);
+
+            // ✅ BUG FIX #2: Only playback device can auto-play
+            if (isPlaying && isPlaybackDevice) {
+                console.log('▶️ Auto-playing initial song (playback device)');
                 player.loadVideoById({ videoId, startSeconds: 0 });
                 player.setVolume(isMuted ? 0 : volume);
                 setTimeout(() => player.playVideo(), 1000);
             } else {
-                console.log('⏸️ NOT auto-playing initial song (using cueVideoById)');
+                console.log('⏸️ NOT auto-playing initial song (not playback device or paused)');
                 player.cueVideoById({ videoId, startSeconds: 0 });
                 player.setVolume(isMuted ? 0 : volume);
             }
@@ -409,7 +426,7 @@ const MusicPlayer = memo(function MusicPlayer({
 
     player1Ref.current = createPlayer('youtube-player-1', e => e.data === 0 && activePlayer === 1 && onSongEnd());
     player2Ref.current = createPlayer('youtube-player-2', e => e.data === 0 && activePlayer === 2 && onSongEnd());
-  }, [isReady, currentSong, activePlayer, isPlaying, volume, isMuted, onSongEnd]);
+  }, [isReady, currentSong, activePlayer, isPlaying, isPlaybackDevice, volume, isMuted, onSongEnd]);
 
   useEffect(() => {
     if (currentSong && 'mediaSession' in navigator) {
@@ -462,9 +479,9 @@ const MusicPlayer = memo(function MusicPlayer({
         if (time > 0 && dur > 0) {
           setCurrentTime(time);
           setDuration(dur);
-          
-          // Broadcast currentTime to host for Firestore sync
-          if (isHost && onTimeUpdate) {
+
+          // ✅ BUG FIX #1: Broadcast ONLY if you're the playback device (host or assigned guest)
+          if (isPlaybackDevice && onTimeUpdate) {
             onTimeUpdate(time);
           }
         }
@@ -473,7 +490,7 @@ const MusicPlayer = memo(function MusicPlayer({
     return () => {
       if(progressIntervalRef.current) clearInterval(progressIntervalRef.current);
     };
-  }, [isReady, activePlayer, isHost, onTimeUpdate]);
+  }, [isReady, activePlayer, isPlaybackDevice, onTimeUpdate]);
 
   useEffect(() => {
     if (loadSongTimeoutRef.current) {
@@ -500,11 +517,13 @@ const MusicPlayer = memo(function MusicPlayer({
       setDuration(0);
       player.loadVideoById({ videoId, startSeconds: 0 });
       player.setVolume(isMuted ? 0 : volume);
-      
-      // FIX: Don't auto-play if paused
-      if (isPlaying) {
-        console.log('▶️ Auto-playing song (isPlaying: true)');
+
+      // ✅ BUG FIX #2: Only playback device can auto-play
+      if (isPlaying && isPlaybackDevice) {
+        console.log('▶️ Auto-playing song (isPlaying: true, isPlaybackDevice: true)');
         setTimeout(() => player.playVideo(), 800);
+      } else if (!isPlaybackDevice) {
+        console.log('⏸️ NOT auto-playing (not playback device)');
       } else {
         console.log('⏸️ NOT auto-playing (isPlaying: false)');
       }
@@ -513,7 +532,7 @@ const MusicPlayer = memo(function MusicPlayer({
     return () => {
       if(loadSongTimeoutRef.current) clearTimeout(loadSongTimeoutRef.current)
     };
-  }, [currentSong?.id, isReady, activePlayer, isPlaying, volume, isMuted]);
+  }, [currentSong?.id, isReady, activePlayer, isPlaying, isPlaybackDevice, volume, isMuted]);
 
   // BUG FIX #1: Reset playback state on pause to prevent chaos
   const resetPlaybackState = () => {
@@ -540,21 +559,25 @@ const MusicPlayer = memo(function MusicPlayer({
     if (!isReady || !player1Ref.current || !player2Ref.current) return;
     const player = activePlayer === 1 ? player1Ref.current : player2Ref.current;
 
-    console.log('🔄 isPlaying changed:', isPlaying);
+    console.log('🔄 isPlaying changed:', isPlaying, 'isPlaybackDevice:', isPlaybackDevice);
 
     setTimeout(() => {
-      if (isPlaying) {
-        console.log('▶️ Calling playVideo() due to isPlaying change');
+      // ✅ BUG FIX #2: Only playback device controls actual playback
+      if (isPlaying && isPlaybackDevice) {
+        console.log('▶️ Calling playVideo() (playback device)');
         player.playVideo?.();
-      } else {
-        console.log('⏸️ Calling pauseVideo() due to isPlaying change');
+      } else if (!isPlaying && isPlaybackDevice) {
+        console.log('⏸️ Calling pauseVideo() (playback device)');
         player.pauseVideo?.();
 
-        // BUG FIX #1: Reset state on pause
+        // Reset state on pause
         resetPlaybackState();
+      } else if (!isPlaybackDevice) {
+        console.log('⏸️ Not playback device, pausing local player');
+        player.pauseVideo?.();
       }
     }, 300);
-  }, [isPlaying, isReady, activePlayer]);
+  }, [isPlaying, isReady, activePlayer, isPlaybackDevice]);
 
   useEffect(() => {
     if (!isReady) return;

@@ -1,139 +1,362 @@
 <img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
 
-# 🎵 VIBEBOX - UPDATED BUG LIST \& FIXES FOR CLAUDE CODE
+# 🎵 VIBEBOX - UPDATED BUG REPORT \& FIX INSTRUCTIONS FOR CLAUDE CODE
 
-## 🔴 CRITICAL PRIORITY BUGS (Fix These First)
+**Last Updated**: 15. Listopada 2025. - 11:42 CEST
+**Context**: Based on ChatGPT 5 diagnostic conversation + existing VibeBox architecture
 
-### **Bug \#1: Playback System Chaos After Pause/Resume**
+***
 
-**Problem**: Nakon što se pauzira i ponovo pusti playlista, aplikacija ne zna više ko kontroliše playback, zapinje, ide u loop, timestamp se gubi.[^1]
+## 📋 CRITICAL INFORMATION FOR CLAUDE CODE
 
-**Root Cause**: Playback state management se miješa sa messaging i role transfer sistemom.[^1]
+### **Project Architecture** (from existing codebase)
+
+- **Frontend**: React 18 + TypeScript + Vite[^1]
+- **Backend**: Firebase Firestore (real-time sync)[^1]
+- **Music Playback**: YouTube IFrame API (dual-player crossfade system)[^1]
+- **Drag \& Drop**: `@dnd-kit` (host), `react-beautiful-dnd` (guest)[^1]
+- **Routing**: React Router v7[^1]
+
+
+### **Key Components**
+
+- `src/components/MusicPlayer.tsx` (786 lines) - Dual-player system with crossfade[^1]
+- `src/pages/HostDashboard.tsx` (790 lines) - Host UI \& Firebase listeners[^1]
+- `src/pages/GuestView.tsx` (924 lines) - Guest UI \& Firebase listeners[^1]
+- `src/components/host/QueueSection.tsx` (476 lines) - Drag \& drop queue[^1]
+
+
+### **Current Playback Architecture**
+
+**Dual-Player System**: Two YouTube IFrame players (`player1Ref`, `player2Ref`) alternate for seamless crossfade transitions.[^1]
+
+**Role-Based Permissions**:
+
+- **Host**: Full control (default playback device)[^1]
+- **DJ**: Playback controls (play/pause/skip/next)[^1]
+- **Admin**: Kick guests, transfer roles, settings access[^1]
+- **Playback Device**: Device that actually plays audio (can be host or guest)[^1]
+
+***
+
+## 🔴 CRITICAL BUGS (Fix Priority Order)
+
+### **Bug \#1: Infinite Guest Sync Loop** 🔥 HIGHEST PRIORITY
+
+**Symptom**: Console spam:
+
+```
+🔄 Syncing guest player: Host is at 143.9s, Guest is at 144.1s. Seeking...
+🔄 Syncing guest player: Host is at 144.0s, Guest is at 144.2s. Seeking...
+[infinite repeat]
+```
+
+**Root Cause Analysis** (based on existing code):
+
+- `syncGuestPlayer()` in `MusicPlayer.tsx` triggers in `onStateChange()` or `setInterval()` without checking who is the **Playback Source**[^1]
+- Variable `playbackDevice` is NOT consistently checked before syncing
+- ALL clients try to pull timestamp from Firestore `syncTime` field and seek simultaneously
+- No cooldown mechanism prevents multiple `seekTo()` calls within short timeframe
+
+**Current Problematic Logic** (likely in `MusicPlayer.tsx` lines 549-565):
+
+```typescript
+// ❌ WRONG: Guest syncs to host even when guest IS the playback device
+useEffect(() => {
+  const interval = setInterval(() => {
+    if (!isHost) { // ❌ This is NOT enough!
+      syncToHost(); // ❌ Triggers even if guest is playback device
+    }
+  }, 1000);
+}, []);
+```
 
 **Fix Required**:
 
-- **Isolate playback logic** from messaging, DJ transfers, and admin operations
-- **Separate Firebase listeners**: One for playback state (`currentSong`, `syncTime`, `isPlaying`), separate from role management
-- **Add playback state validation**: Before every play/pause/skip, verify who has control
-- **Implement state reconciliation**: After pause, clear all pending crossfade timers and reset player states
-
-**Files to Modify**:
-
-- `src/components/MusicPlayer.tsx` (lines 549-565, full playback logic)
-- `src/pages/HostDashboard.tsx` (Firebase listeners separation)
-- `src/pages/GuestView.tsx` (Firebase listeners separation)
-
-**Implementation Steps**:
+**1. Single Source of Truth in Firestore**:
 
 ```typescript
-// 1. Create separate Firebase listener for playback ONLY
-useEffect(() => {
-  const unsubPlayback = onSnapshot(
-    doc(db, 'sessions', sessionCode),
-    (snap) => {
-      const data = snap.data();
-      // ONLY update: currentSong, syncTime, isPlaying, activePlayer
-      // DO NOT mix with messages, roles, guests
-    }
-  );
-  return () => unsubPlayback();
-}, [sessionCode]);
+// Firebase schema update (sessions collection):
+{
+  "code": "ABC123",
+  "playbackDevice": "HOST" | "guest_name", // WHO is playing audio
+  "currentSong": { ... },
+  "syncTime": 1697384923000, // Timestamp when song started
+  "isPlaying": true
+}
+```
 
-// 2. Add playback control validation
-const handlePlayPause = async () => {
-  // Check: Am I the playback device?
-  if (playbackDevice !== currentUser) {
-    console.warn('Not playback device, ignoring');
+**2. Playback Source Logic** (in `MusicPlayer.tsx`):
+
+```typescript
+// ✅ CORRECT: Only playback device broadcasts position
+const isPlaybackDevice = 
+  (isHost && playbackDevice === 'HOST') || 
+  (!isHost && playbackDevice === guestName);
+
+useEffect(() => {
+  if (isPlaybackDevice) {
+    // I'm the active playback device
+    const broadcastInterval = setInterval(() => {
+      const currentTime = player1Ref.current?.getCurrentTime() || 0;
+      updateDoc(sessionRef, {
+        syncTime: Date.now() - (currentTime * 1000),
+        isPlaying: playerState === 1 // 1 = playing
+      });
+    }, 1000); // Broadcast every 1s
+    
+    return () => clearInterval(broadcastInterval);
+  } else {
+    // I'm a listener (guest/host without playback)
+    const syncInterval = setInterval(() => {
+      syncToPlaybackDevice();
+    }, 2000); // Check sync every 2s (less aggressive)
+    
+    return () => clearInterval(syncInterval);
+  }
+}, [isPlaybackDevice, guestName, playbackDevice]);
+```
+
+**3. Drift Correction with Cooldown**:
+
+```typescript
+// ✅ Prevent infinite seek loop
+let lastSyncTimestamp = 0;
+const SYNC_COOLDOWN = 2000; // 2 seconds minimum between syncs
+
+const syncToPlaybackDevice = () => {
+  if (isPlaybackDevice) return; // ✅ Don't sync if I'm the source!
+  
+  const now = Date.now();
+  if (now - lastSyncTimestamp < SYNC_COOLDOWN) {
+    console.log('⏳ Sync cooldown active, skipping...');
     return;
   }
-  // Proceed with play/pause
-};
-
-// 3. Reset state on pause
-const handlePause = () => {
-  clearAllCrossfadeTimers();
-  resetPlayerStates();
-  updateFirebase({ isPlaying: false, syncTime: getCurrentTime() });
-};
-
-// 4. Sync validation on resume
-const handleResume = () => {
-  const currentTime = getCurrentTime();
-  updateFirebase({ isPlaying: true, syncTime: currentTime });
-  // Force all guests to sync to this exact time
+  
+  const currentTime = player1Ref.current?.getCurrentTime() || 0;
+  const expectedTime = (now - syncTime) / 1000; // syncTime from Firestore
+  const drift = Math.abs(currentTime - expectedTime);
+  
+  if (drift > 3.0) { // Only sync if drift > 3 seconds
+    console.log(`🔄 Drift detected: ${drift.toFixed(1)}s, correcting...`);
+    player1Ref.current?.seekTo(expectedTime, true);
+    lastSyncTimestamp = now;
+  }
 };
 ```
 
+**4. Stop Sync on Playback Transfer**:
 
-***
-
-### **Bug \#2: Guest Voting Still Reversed (CRITICAL)**
-
-**Problem**: Kad gost glasa zeleno (palac gore, upvote), pjesma ide na začelje reda. Na hostu radi OK, ali na gostu je sjebano.[^1]
-
-**Root Cause**: `GuestView.tsx` ima invertirane `arrayUnion`/`arrayRemove` operacije ili sort funkcija je pogrešna.
-
-**Fix Required**:
-
-- **Check voting logic in `GuestView.tsx`**: Ensure upvote adds to `upvotes` array, NOT `downvotes`
-- **Verify sort function**: Queue should sort by `(upvotes.length - downvotes.length) DESC`
-- **Test on both host and guest**: Confirm voting produces identical queue order
+```typescript
+// When transferring playback device:
+const transferPlaybackDevice = async (newDeviceId: string) => {
+  // Clear all intervals
+  clearAllSyncIntervals();
+  
+  // Update Firestore
+  await updateDoc(sessionRef, {
+    playbackDevice: newDeviceId,
+    syncTime: Date.now() // Reset sync timestamp
+  });
+  
+  // Restart sync logic
+  setupPlaybackSync();
+};
+```
 
 **Files to Modify**:
 
-- `src/pages/GuestView.tsx` (voting handlers)
+- `src/components/MusicPlayer.tsx` (main sync logic)
+- `src/pages/HostDashboard.tsx` (playback device transfer)
+- `src/pages/GuestView.tsx` (playback device transfer)
 
-**Implementation**:
+***
+
+### **Bug \#2: Auto-play Nakon Ponovnog Ulaska u App**
+
+**Symptom**: Kad korisnik zatvori i ponovno otvori aplikaciju, pjesma automatski krene svirati iako je bila pauzirana.[^1]
+
+**Root Cause**:
+
+- `isPlaying` state je `true` u Firestore
+- Client automatski pokreće playback pri re-sync
+- Nema provjere: "Jesam li ja playback device?"
+
+**Fix Required** (in `MusicPlayer.tsx`):
 
 ```typescript
-// CORRECT voting logic:
-const handleUpvote = async (songId: string) => {
-  await updateDoc(doc(db, 'sessions', sessionCode), {
-    [`queue.${songIndex}.upvotes`]: arrayUnion(guestName), // ✅ Add to upvotes
-    [`queue.${songIndex}.downvotes`]: arrayRemove(guestName) // ✅ Remove from downvotes
+// ✅ Firebase listener for playback state
+useEffect(() => {
+  const unsubscribe = onSnapshot(sessionRef, (snap) => {
+    const data = snap.data();
+    
+    if (data.isPlaying && !isPlaybackDevice) {
+      // ✅ Guest/host without playback: DON'T auto-play
+      player1Ref.current?.pauseVideo();
+      console.log('⏸️ Not playback device, pausing local player');
+    } else if (data.isPlaying && isPlaybackDevice) {
+      // ✅ Playback device: Resume playback
+      player1Ref.current?.playVideo();
+      console.log('▶️ Playback device, resuming playback');
+    }
   });
-};
-
-const handleDownvote = async (songId: string) => {
-  await updateDoc(doc(db, 'sessions', sessionCode), {
-    [`queue.${songIndex}.downvotes`]: arrayUnion(guestName), // ✅ Add to downvotes
-    [`queue.${songIndex}.upvotes`]: arrayRemove(guestName) // ✅ Remove from upvotes
-  });
-};
-
-// CORRECT sort function:
-const sortedQueue = [...queue].sort((a, b) => {
-  const scoreA = (a.upvotes?.length || 0) - (a.downvotes?.length || 0);
-  const scoreB = (b.upvotes?.length || 0) - (b.downvotes?.length || 0);
-  return scoreB - scoreA; // ✅ Higher score first
-});
+  
+  return () => unsubscribe();
+}, [isPlaybackDevice]);
 ```
 
 
 ***
 
-### **Bug \#3: "Listen on My Device" Toggle Missing for All Users**
+### **Bug \#3: Party Code Predug na Mobitelu**
 
-**Problem**: Toggle treba biti **UVIJEK PRISUTAN** kod svih usera. Kad si playback device (host ili gost sa privilegijom), button je **disabled**.[^1]
+**Symptom**: Party Code na glavnom ekranu izlazi izvan vidljivog prostora u portrait mode-u.
 
-**Current Behavior**: Toggle se prikazuje samo na mobile, ne na desktop.
+**Fix Required** (in `HostDashboard.tsx` ili `GuestView.tsx`):
+
+**Option A: Skrati Font i Dodaj Overflow**
+
+```tsx
+<div className="text-sm md:text-base font-mono truncate max-w-[150px]">
+  Code: {roomCode}
+</div>
+```
+
+**Option B: Premjesti Gore Desno** (preporučeno)
+
+```tsx
+<div className="flex items-center justify-between mb-4">
+  <h1 className="text-2xl font-bold">VibeBox Party</h1>
+  <div className="flex items-center gap-2">
+    <InviteButton />
+    <span className="text-xs bg-gray-800 px-3 py-1 rounded-full">
+      {roomCode}
+    </span>
+  </div>
+</div>
+```
+
+**Files to Modify**:
+
+- `src/pages/HostDashboard.tsx` (header section)
+- `src/pages/GuestView.tsx` (header section)
+
+***
+
+### **Bug \#4: DJ Control Transfer Ne Aktivira Odmah Playlistu**
+
+**Symptom**: Kad host da DJ kontrolu gostu, taj gost mora ručno startati playlistu — ne prenosi se automatski `isDJ = true` + `canStart = true`.[^1]
+
+**Current Issue**: DJ role se update-a u Firestore, ali novi DJ ne dobije playback controls odmah.[^1]
+
+**Fix Required** (in `HostDashboard.tsx` and `GuestView.tsx`):
+
+```typescript
+// ✅ Host: Transfer DJ control
+const transferDJControl = async (guestName: string) => {
+  await updateDoc(sessionRef, {
+    djName: guestName,
+    // ✅ Also update playback device if needed
+    playbackDevice: guestName // Or keep as 'HOST' if host wants audio
+  });
+  
+  // ✅ Send notification to new DJ
+  await addDoc(collection(db, `sessions/${sessionCode}/notifications`), {
+    type: 'dj_assigned',
+    targetUser: guestName,
+    message: `You are now the DJ! 🎧`,
+    timestamp: Date.now()
+  });
+};
+
+// ✅ Guest: Listen for DJ role assignment
+useEffect(() => {
+  const unsubscribe = onSnapshot(sessionRef, (snap) => {
+    const data = snap.data();
+    
+    if (data.djName === guestName && !isDJ) {
+      setIsDJ(true);
+      showToast('You are now the DJ! 🎧', 5000);
+      
+      // ✅ Auto-start playlist if not playing
+      if (!data.isPlaying && data.queue.length > 0) {
+        startPlaylist();
+      }
+    }
+  });
+  
+  return () => unsubscribe();
+}, [guestName]);
+```
+
+**Files to Modify**:
+
+- `src/pages/HostDashboard.tsx` (transferDJControl function)
+- `src/pages/GuestView.tsx` (DJ role listener)
+
+***
+
+### **Bug \#5: Guest List - Nema "Send Message" i "Kick" Za Sve**
+
+**Symptom**: Samo host vidi "kick" i "message" ikone; gosti ih nemaju.
 
 **Expected Behavior**:
 
-- **Always visible** for all users (host + guests)
-- **Enabled** when user is NOT playback device
-- **Disabled** when user IS playback device (shows "You are the playback device")
+- **Svi useri** vide "Send Message" ikonu
+- **Samo Host i Admin** vide "Kick" ikonu
+
+**Fix Required** (in `GuestList.tsx` ili gdje se renderira guest lista):
+
+```tsx
+{guests.map((guest) => (
+  <div key={guest.name} className="flex items-center justify-between">
+    <span>{guest.name}</span>
+    
+    <div className="flex gap-2">
+      {/* ✅ Message icon visible to ALL users */}
+      <button onClick={() => openChat(guest.name)}>
+        <MessageIcon className="w-5 h-5" />
+      </button>
+      
+      {/* ✅ Kick icon only for Host and Admin */}
+      {(isHost || isAdmin) && guest.name !== guestName && (
+        <button onClick={() => kickUser(guest.name)}>
+          <KickIcon className="w-5 h-5 text-red-500" />
+        </button>
+      )}
+      
+      {/* ✅ Role badges */}
+      {guest.isDJ && <Badge>DJ</Badge>}
+      {guest.isAdmin && <Badge>Admin</Badge>}
+    </div>
+  </div>
+))}
+```
 
 **Files to Modify**:
 
-- `src/components/MusicPlayer.tsx`
+- Component that renders guest list (likely in `HostDashboard.tsx` or separate `GuestList.tsx`)
 
-**Implementation**:
+***
 
-```typescript
-// Always show toggle (remove mobile-only condition)
-<div className="flex items-center gap-2">
-  <label>Listen on My Device</label>
+### **Bug \#6: "Listen on My Device" Gumb Se Gubi ili Je Neaktivan**
+
+**Symptom**: Gumb se pojavljuje/nestaje, i playback ga ne može kontrolirati kad treba.[^1]
+
+**Current Issue**: Toggle je vidljiv samo na mobile, ne na desktop.[^1]
+
+**Expected Behavior**:
+
+- **Uvijek vidljiv** kod svih usera
+- **Disabled** kad si playback device
+- **Enabled** kad nisi playback device (možeš uključiti lokalni audio)
+
+**Fix Required** (in `MusicPlayer.tsx`):
+
+```tsx
+{/* ✅ Always visible toggle */}
+<div className="flex items-center gap-3 mb-4">
+  <label className="text-sm font-medium">Listen on My Device</label>
   <Toggle
     checked={isListeningLocally}
     disabled={isPlaybackDevice} // ✅ Disable if user is playback device
@@ -146,234 +369,202 @@ const sortedQueue = [...queue].sort((a, b) => {
   )}
 </div>
 
-// Logic:
+{/* Logic */}
 const isPlaybackDevice = 
   (isHost && playbackDevice === 'HOST') || 
   (!isHost && playbackDevice === guestName);
 
-const isListeningLocally = !isPlaybackDevice; // Auto-enable for non-playback users
-```
+const [isListeningLocally, setIsListeningLocally] = useState(!isPlaybackDevice);
 
-
-***
-
-### **Bug \#4: Skip/Next/Previous Toast Only Shows on Initiator Device**
-
-**Problem**: Kad neko skipuje, pausira, ili ide na next/previous song, toast se vidi samo na tom deviceu, ne izlazi na drugim gostima ili hostovima.[^1]
-
-**Fix Required**:
-
-- **Add toast trigger to Firebase**: When host/DJ skips, write to Firestore: `lastAction: { type: 'skip', songTitle: '...', timestamp: Date.now() }`
-- **All clients listen for `lastAction`**: Display toast when `lastAction` timestamp changes
-- **Auto-dismiss after 2s**: Remove toast locally after timeout
-
-**Files to Modify**:
-
-- `src/components/ToastManager.tsx`
-- `src/components/MusicPlayer.tsx` (skip/next/previous handlers)
-- Firebase schema: Add `lastAction` field to session document
-
-**Implementation**:
-
-```typescript
-// On skip/next/previous:
-const handleSkip = async () => {
-  await updateDoc(doc(db, 'sessions', sessionCode), {
-    lastAction: {
-      type: 'skip',
-      songTitle: currentSong.title,
-      initiator: currentUser,
-      timestamp: Date.now()
-    }
-  });
-  // Trigger crossfade
-};
-
-// All clients listen:
-useEffect(() => {
-  const unsub = onSnapshot(doc(db, 'sessions', sessionCode), (snap) => {
-    const lastAction = snap.data()?.lastAction;
-    if (lastAction && lastAction.timestamp > lastSeenActionTimestamp) {
-      showToast(`${lastAction.initiator} skipped to ${lastAction.songTitle}`);
-      setLastSeenActionTimestamp(lastAction.timestamp);
-    }
-  });
-  return unsub;
-}, [sessionCode]);
-```
-
-
-***
-
-## 🟡 MEDIUM PRIORITY
-
-### **Bug \#5: Guest Message Button Missing**
-
-**Problem**: Gosti moraju ići skroz gore na "Messages" da bi poslali poruku. Nemaju mali button kao host.[^1]
-
-**Fix Required**:
-
-- **Add floating message icon button** (bottom-right) for guests
-- **Same UI as host**: Small icon button that opens message modal
-- **Position**: Bottom-right corner, fixed position
-
-**Files to Modify**:
-
-- `src/pages/GuestView.tsx`
-
-**Implementation**:
-
-```typescript
-// Add floating button in GuestView:
-<button
-  className="fixed bottom-4 right-4 p-3 bg-purple-600 rounded-full shadow-lg hover:bg-purple-700"
-  onClick={() => setShowMessageModal(true)}
->
-  <MessageIcon className="w-6 h-6 text-white" />
-</button>
-```
-
-
-***
-
-## 🔧 ENHANCED PLAYBACK SYNC REQUIREMENTS
-
-### **Requirement: Bulletproof Sync Regardless of Skip/Seek Operations**
-
-**Goal**: Kolko god skipas ili seekas, playback mora biti **uvijek sinkronizirano i smooth**.[^1]
-
-**Implementation Checklist**:
-
-1. **Drift Correction Algorithm**:
-```typescript
-// Every 500ms, check sync drift:
-useEffect(() => {
-  const interval = setInterval(() => {
-    if (!isPlaybackDevice) {
-      const currentTime = player.getCurrentTime();
-      const expectedTime = (Date.now() - syncTime) / 1000;
-      const drift = Math.abs(currentTime - expectedTime);
-      
-      if (drift > 2.0) { // 2s tolerance
-        console.warn(`Drift detected: ${drift}s, correcting...`);
-        player.seekTo(expectedTime);
-      }
-    }
-  }, 500);
-  return () => clearInterval(interval);
-}, [syncTime, isPlaybackDevice]);
-```
-
-2. **Skip Validation**:
-```typescript
-// Before every skip, validate playback device:
-const handleSkip = () => {
-  if (!isPlaybackDevice) {
-    console.error('Not playback device, cannot skip');
-    return;
-  }
-  // Clear all timers
-  clearAllTimers();
-  // Update Firebase with new syncTime
-  const newSyncTime = Date.now();
-  updateFirebase({ syncTime: newSyncTime, currentSong: nextSong });
-};
-```
-
-3. **Seek Sync Broadcast**:
-```typescript
-// When playback device seeks, broadcast to all:
-const handleSeek = (newTime: number) => {
-  if (!isPlaybackDevice) return;
+const handleToggleLocalAudio = (enabled: boolean) => {
+  setIsListeningLocally(enabled);
   
-  const newSyncTime = Date.now() - (newTime * 1000);
-  updateFirebase({ syncTime: newSyncTime });
-  // All guests will auto-sync to this new time
-};
-```
-
-4. **Crossfade During Seek**:
-```typescript
-// Pause crossfade if seek happens in last X seconds:
-const handleSeek = (newTime: number) => {
-  const duration = player.getDuration();
-  if (duration - newTime < crossfadeDuration) {
-    console.log('Seek in crossfade zone, pausing auto-crossfade');
-    clearCrossfadeTimer();
+  if (enabled) {
+    player1Ref.current?.unMute();
+    player1Ref.current?.setVolume(volume);
+  } else {
+    player1Ref.current?.mute();
   }
 };
 ```
 
-5. **State Reset on Error**:
-```typescript
-// If player enters error state, reset completely:
-const onPlayerError = () => {
-  console.error('Player error, resetting...');
-  clearAllTimers();
-  player.stopVideo();
-  player.loadVideoById(currentSong.id);
-  updateFirebase({ syncTime: Date.now() });
-};
+**Files to Modify**:
+
+- `src/components/MusicPlayer.tsx` (toggle UI and logic)
+
+***
+
+### **Bug \#7: Scroll Playlist-e na Mobitelu**
+
+**Symptom**: Nazivi pjesama ne skrolaju i predugi su.
+
+**Fix Required**: CSS animacija za marquee efekt
+
+```css
+/* Add to global CSS or component styles */
+.song-title {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  max-width: 200px; /* Adjust based on mobile width */
+}
+
+.song-title:hover {
+  animation: scroll-text 8s linear infinite;
+}
+
+@keyframes scroll-text {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
 ```
 
-
-***
-
-## 📋 FINAL CHECKLIST FOR CLAUDE CODE
-
-### **Priority Fix Order**:
-
-| \# | Bug | Priority | Files |
-| :-- | :-- | :-- | :-- |
-| 1 | Playback chaos after pause/resume | 🔴 CRITICAL | `MusicPlayer.tsx`, `HostDashboard.tsx`, `GuestView.tsx` |
-| 2 | Guest voting reversed | 🔴 CRITICAL | `GuestView.tsx` |
-| 3 | "Listen on my device" toggle missing | 🔴 CRITICAL | `MusicPlayer.tsx` |
-| 4 | Skip/next/previous toast only on initiator | 🔴 CRITICAL | `ToastManager.tsx`, `MusicPlayer.tsx` |
-| 5 | Guest message button missing | 🟡 MEDIUM | `GuestView.tsx` |
-| 6 | Enhanced playback sync (drift correction) | 🔴 CRITICAL | `MusicPlayer.tsx` |
-
-### **Testing Requirements**:
-
-1. **Test playback after pause/resume**: No loops, no timestamp loss
-2. **Test voting on guest**: Upvote moves song UP in queue (not down)
-3. **Test "Listen on my device" toggle**: Visible for all, disabled for playback device
-4. **Test skip/next toast**: Appears on ALL devices, not just initiator
-5. **Test heavy skip/seek usage**: Playback stays synced, no audio jumps
-6. **Test role changes**: Messaging and admin changes don't break playback
-
-### **Code Architecture Requirements**:
-
-- **Separate Firebase listeners**: Playback state separate from roles/messaging
-- **Validation on every action**: Check `isPlaybackDevice` before play/pause/skip
-- **Drift correction**: Run every 500ms for non-playback devices
-- **Error handling**: Reset player state on errors, don't crash
-- **Toast broadcasting**: Use Firebase `lastAction` field for global notifications
-
-***
-
-## 🚀 DEPLOYMENT INSTRUCTIONS FOR CLAUDE CODE
+**Alternative**: Use `react-text-marquee` library for better UX
 
 ```bash
-# 1. Test locally first:
-npm run dev
+npm install react-text-marquee
+```
 
-# 2. Test with multiple devices:
-# - Open http://localhost:5173 on 2+ devices
-# - Create session, join as guest
-# - Test all 6 bugs above
+```tsx
+import Marquee from 'react-text-marquee';
 
-# 3. Deploy to Firebase:
-npm run build
-firebase deploy --only hosting
+<Marquee className="song-title" speed={30}>
+  {song.title}
+</Marquee>
+```
 
-# 4. Verify on live URL:
-# https://vibebox-58735465-afa10.web.app/
+**Files to Modify**:
+
+- Queue component (where song titles are rendered)
+- Global CSS file or Tailwind config
+
+***
+
+## ⚙️ ADDITIONAL IMPROVEMENTS (Preporuke)
+
+### **1. Debug Mode Flag**
+
+```typescript
+// Add to .env
+VITE_DEBUG_SYNC=true
+
+// Use in MusicPlayer.tsx
+const DEBUG = import.meta.env.VITE_DEBUG_SYNC === 'true';
+
+if (DEBUG) {
+  console.log('🔄 Syncing guest player:', { currentTime, expectedTime, drift });
+}
+```
+
+
+### **2. Sync Cooldown Mechanism**
+
+Already included in Bug \#1 fix (see `SYNC_COOLDOWN` constant).
+
+### **3. Recursion Loop Protection**
+
+```typescript
+// ✅ Prevent play/pause recursion
+let selfTriggered = false;
+
+const handlePlay = () => {
+  if (selfTriggered) {
+    selfTriggered = false;
+    return;
+  }
+  
+  selfTriggered = true;
+  player1Ref.current?.playVideo();
+  updateFirestore({ isPlaying: true });
+};
+
+const handlePause = () => {
+  if (selfTriggered) {
+    selfTriggered = false;
+    return;
+  }
+  
+  selfTriggered = true;
+  player1Ref.current?.pauseVideo();
+  updateFirestore({ isPlaying: false });
+};
 ```
 
 
 ***
 
-**Note**: Fokusiraj se PRVO na playback system (Bug \#1, \#6) jer to je najkriticnije. Nakon toga ispravi voting (\#2), toggle (\#3), toast (\#4), i na kraju message button (\#5).[^1]
+## 📋 FINAL PRIORITY FIX ORDER FOR CLAUDE CODE
+
+| \# | Bug | Priority | Impact | Files |
+| :-- | :-- | :-- | :-- | :-- |
+| 1 | Infinite sync loop | 🔴 CRITICAL | App unusable, console spam | `MusicPlayer.tsx` |
+| 2 | Auto-play after re-entry | 🔴 CRITICAL | Unexpected behavior | `MusicPlayer.tsx` |
+| 3 | "Listen on my device" missing | 🔴 HIGH | Core feature broken | `MusicPlayer.tsx` |
+| 4 | DJ control transfer | 🔴 HIGH | Role system broken | `HostDashboard.tsx`, `GuestView.tsx` |
+| 5 | Party code overflow | 🟡 MEDIUM | UI issue on mobile | `HostDashboard.tsx`, `GuestView.tsx` |
+| 6 | Guest list buttons | 🟡 MEDIUM | Social feature missing | `GuestList.tsx` |
+| 7 | Song title scroll | 🟢 LOW | UI polish | Queue component + CSS |
+
+
+***
+
+## 🚀 TESTING INSTRUCTIONS FOR CLAUDE CODE
+
+**After Each Fix**:
+
+1. **Test playback sync**: Open 2 devices, assign playback to guest, verify NO infinite loop
+2. **Test pause/resume**: Close app, reopen, verify playback doesn't auto-start if paused
+3. **Test DJ transfer**: Host assigns DJ to guest, verify guest gets controls immediately
+4. **Test mobile UI**: Check party code visibility, song title scroll
+5. **Test role permissions**: Verify message/kick buttons appear correctly
+
+**Final Integration Test**:
+
+- Create session on device A (host)
+- Join on device B (guest)
+- Transfer DJ to guest → Verify controls appear
+- Transfer playback to guest → Verify host stops playing, guest starts
+- Pause and close app → Reopen → Verify doesn't auto-play
+- Check console → Verify NO sync loop messages
+
+***
+
+## 🔥 FIRESTORE SCHEMA UPDATE REQUIRED
+
+```typescript
+// sessions/{sessionCode}
+{
+  "code": "ABC123",
+  "hostName": "John",
+  "roomName": "Party Room",
+  "queue": Song[],
+  "guests": string[],
+  "djName": string, // Who has DJ controls
+  "playbackDevice": "HOST" | string, // ✅ WHO plays audio (source of truth)
+  "adminUsers": string[],
+  "settings": SessionSettings,
+  "isPartyStarted": boolean,
+  "currentSong": Song | null,
+  "syncTime": number, // ✅ Timestamp when song started (ms)
+  "isPlaying": boolean // ✅ Is playback active
+}
+```
+
+**Key Change**: `playbackDevice` field now determines who broadcasts sync position.[^1]
+
+***
+
+**IMPORTANT NOTES FOR CLAUDE CODE**:
+
+- Focus on Bug \#1 (sync loop) FIRST — it's the most critical issue blocking app usage
+- Use existing dual-player architecture (don't rewrite entire playback system)[^1]
+- Respect existing role-based permission system (Host/DJ/Admin/Playback Device)[^1]
+- Test thoroughly after each fix — playback system is fragile
+- Use console logs with emoji prefixes for easy debugging (🔄 for sync, ⏸️ for pause, etc.)
 
 <div align="center">⁂</div>
 

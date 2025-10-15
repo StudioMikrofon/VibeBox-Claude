@@ -104,7 +104,10 @@ function SortableQueueItem({
         {/* Song Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <div className="text-white font-semibold truncate text-sm md:text-base">{song.title}</div>
+            {/* ✅ BUG FIX #7: Mobile marquee for long song titles */}
+            <div className="mobile-marquee text-white font-semibold text-sm md:text-base md:truncate">
+              <span className="mobile-marquee-text">{song.title}</span>
+            </div>
             <Youtube className="w-3 h-3 md:w-4 md:h-4 text-[#FF0000] flex-shrink-0" />
           </div>
           <div className="text-gray-400 text-xs md:text-sm truncate">
@@ -212,7 +215,10 @@ function SortableQueueItem({
           
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <div className="text-white font-semibold truncate text-sm">{song.title}</div>
+              {/* ✅ BUG FIX #7: Mobile marquee for long song titles */}
+              <div className="mobile-marquee text-white font-semibold text-sm">
+                <span className="mobile-marquee-text">{song.title}</span>
+              </div>
               <Youtube className="w-3 h-3 text-[#FF0000] flex-shrink-0" />
             </div>
             <div className="text-gray-400 text-xs truncate">

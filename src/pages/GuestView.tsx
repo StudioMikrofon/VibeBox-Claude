@@ -422,6 +422,14 @@ export default function GuestView() {
     }
   }, [userRole, audioEnabled]);
 
+  // ✅ BUG FIX #4: Auto-enable listenLocally when user becomes DJ
+  useEffect(() => {
+    if (isDJ && !listenLocally) {
+      console.log('✅ User became DJ, enabling listenLocally');
+      setListenLocally(true);
+    }
+  }, [isDJ]);
+
   const handleAddSong = async (song: Song) => {
     if (!sessionDocId || !session) return;
 
@@ -939,7 +947,7 @@ export default function GuestView() {
               </div>
               
               <div className="space-y-2 max-h-96 overflow-y-auto pr-2">
-                <div className="bg-gray-800/50 rounded-lg p-3 flex items-center justify-between">
+                <div className="bg-gray-800/50 rounded-lg p-3 flex items-center justify-between group hover:bg-gray-800 transition-colors">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="w-2 h-2 bg-green-500 rounded-full" title="Online" />
                     <span className="text-white truncate font-medium">{session.hostName}</span>
@@ -948,6 +956,18 @@ export default function GuestView() {
                     <span className="px-2 py-0.5 bg-red-500/20 text-red-400 text-xs rounded" title="Host">👑</span>
                     {session.djName === session.hostName && <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded" title="DJ Controls">🎧</span>}
                     {session.playbackDevice === 'HOST' && <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded" title="Playback Device">🔊</span>}
+
+                    {/* ✅ BUG FIX #6: Message button for host - visible to ALL users */}
+                    <button
+                      onClick={() => {
+                        setReplyRecipient(session.hostName);
+                        setShowQuickReply(true);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded transition-all"
+                      title="Send message to host"
+                    >
+                      💬
+                    </button>
                   </div>
                 </div>
 
@@ -972,7 +992,22 @@ export default function GuestView() {
                         {isDJGuest && <span className="px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded" title="DJ Controls">🎧</span>}
                         {isSpeaker && <span className="px-2 py-0.5 bg-blue-500/20 text-blue-400 text-xs rounded" title="Playback Device">🔊</span>}
                         {isAdmin && <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs rounded" title="Admin Privileges">🛡️</span>}
-                        
+
+                        {/* ✅ BUG FIX #6: Message button visible to ALL users */}
+                        {!isMe && (
+                          <button
+                            onClick={() => {
+                              setReplyRecipient(guest);
+                              setShowQuickReply(true);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 px-2 py-1 bg-blue-500/20 hover:bg-blue-500/40 text-blue-400 text-xs rounded transition-all"
+                            title="Send message"
+                          >
+                            💬
+                          </button>
+                        )}
+
+                        {/* ✅ BUG FIX #6: Kick button only for Admin */}
                         {isUserAdmin && !isMe && (
                           <button
                             onClick={() => handleKickGuest(guest)}
