@@ -1,7 +1,7 @@
 import { Music2, Plus, Trash2, Youtube, Trophy, Medal, ChevronUp, ChevronDown, SkipForward, Play, ListMusic, GripVertical } from 'lucide-react';
 import { Song } from '../../types/song';
 import { formatDuration } from '../../utils/formatters';
-import { DndContext, closestCenter, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, closestCenter, DragEndEvent, PointerSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMemo } from 'react';
@@ -351,10 +351,15 @@ export default function QueueSection({
   hostName
 }: QueueSectionProps) {
   const sensors = useSensors(
+    useSensor(TouchSensor, {
+      activationConstraint: {
+        delay: 300, // 300ms hold before drag starts
+        tolerance: 8, // Allow up to 8px movement during hold
+      },
+    }),
     useSensor(PointerSensor, {
       activationConstraint: {
-        delay: 1000, // 1 second long-press for mobile drag
-        tolerance: 5, // Allow 5px movement during press
+        distance: 8, // For desktop: 8px movement to start drag
       },
     })
   );
