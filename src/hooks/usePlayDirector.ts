@@ -10,6 +10,7 @@ interface UsePlayDirectorProps {
   onSongEnd?: () => void;
   onTimeUpdate?: (time: number) => void;
   onError?: (error: string) => void;
+  onCrossfadeNeeded?: (inactivePlayerId: 1 | 2) => void;
 }
 
 interface UsePlayDirectorReturn {
@@ -40,7 +41,8 @@ export function usePlayDirector(props: UsePlayDirectorProps): UsePlayDirectorRet
     manualSkipCrossfade,
     onSongEnd,
     onTimeUpdate,
-    onError
+    onError,
+    onCrossfadeNeeded
   } = props;
 
   // Director singleton ref (stays same across re-renders)
@@ -99,11 +101,20 @@ export function usePlayDirector(props: UsePlayDirectorProps): UsePlayDirectorRet
       }
     };
 
+    // Subscribe to crossfade needed
+    const handleCrossfadeNeeded = (inactivePlayerId: 1 | 2) => {
+      console.log(`🎬 usePlayDirector: Crossfade needed, load next song into Player ${inactivePlayerId}`);
+      if (onCrossfadeNeeded) {
+        onCrossfadeNeeded(inactivePlayerId);
+      }
+    };
+
     // Register callbacks
     director.onStateChange(handleStateChange);
     director.onPositionUpdate(handlePositionUpdate);
     director.onTrackEnd(handleTrackEnd);
     director.onError(handleError);
+    director.onCrossfadeNeeded(handleCrossfadeNeeded);
 
     // Cleanup on unmount
     return () => {
@@ -111,7 +122,7 @@ export function usePlayDirector(props: UsePlayDirectorProps): UsePlayDirectorRet
       // Note: We don't destroy director here because it's a singleton
       // It will be destroyed when the session ends
     };
-  }, [isPlaybackDevice, crossfadeDuration, manualSkipCrossfade, onSongEnd, onTimeUpdate, onError]);
+  }, [isPlaybackDevice, crossfadeDuration, manualSkipCrossfade, onSongEnd, onTimeUpdate, onError, onCrossfadeNeeded]);
 
   // Initialize YouTube players
   const initializePlayers = (player1: any, player2: any) => {
