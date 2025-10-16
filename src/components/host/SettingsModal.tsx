@@ -245,20 +245,29 @@ export default function SettingsModal({
           {/* Voting Settings */}
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-white">🗳️ Voting</h3>
-            
-            <label className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer">
-              <input
-                type="checkbox"
-                checked={localSettings.votingEnabled || false}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocalSettings({
-                  ...localSettings,
-                  votingEnabled: e.target.checked,
-                  allowVoting: e.target.checked
-                })}
-                className="w-5 h-5 text-purple-500 bg-gray-700 border-gray-600 rounded focus:ring-purple-500"
-              />
-              <span className="text-white">Enable voting on songs</span>
-            </label>
+
+            {/* 🔴 BUG FIX #11: Who can vote dropdown */}
+            <div className="space-y-2">
+              <label className="text-white text-sm">Who can vote?</label>
+              <select
+                value={localSettings.votingEnabled ? 'all' : 'disabled'}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                  const enabled = e.target.value !== 'disabled';
+                  setLocalSettings({
+                    ...localSettings,
+                    votingEnabled: enabled,
+                    allowVoting: enabled
+                  });
+                }}
+                className="w-full px-4 py-2 bg-gray-700 text-white rounded-lg border border-gray-600 focus:border-purple-500 focus:ring-2 focus:ring-purple-500/50 transition-all cursor-pointer"
+              >
+                <option value="all">👥 All guests</option>
+                <option value="disabled">🚫 Voting disabled</option>
+              </select>
+              <p className="text-gray-400 text-xs">
+                Control who can vote on songs in the queue
+              </p>
+            </div>
 
             <label className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer">
               <input

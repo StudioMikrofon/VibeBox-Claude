@@ -93,6 +93,7 @@ export default function HostDashboard() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [showQuickReply, setShowQuickReply] = useState(false);
   const [replyRecipient, setReplyRecipient] = useState<string>('');
+  const [syncTime, setSyncTime] = useState<number>(); // 🔴 BUG FIX #1: Host needs to sync when NOT playback device
 
   // 🔴 REMOVED: currentTimeRef (no longer needed, syncTime handled by MusicPlayer)
 
@@ -172,6 +173,11 @@ export default function HostDashboard() {
         // ONLY update playback-related state
         setCurrentSong(data.currentSong || null);
         setIsPlaying(data.isPlaying || false);
+
+        // 🔴 BUG FIX #1: Read syncTime for syncing when host is NOT playback device
+        if (typeof data.syncTime === 'number') {
+          setSyncTime(data.syncTime);
+        }
       }
     );
 
@@ -752,10 +758,27 @@ export default function HostDashboard() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 via-black to-black text-white pb-32">
+      {/* 🔴 BUG FIX #6: Fixed position room code - top-right corner */}
+      <div className="fixed top-4 right-4 z-50">
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(roomCode!);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+          className="flex flex-col items-end gap-1 px-4 py-2 bg-gradient-to-br from-blue-900/80 to-purple-900/80 backdrop-blur-sm border border-white/20 hover:border-white/40 rounded-lg transition-all shadow-xl"
+        >
+          <span className="text-xs text-gray-300 font-semibold">Room Code</span>
+          <span className="text-xl md:text-2xl font-bold tracking-wider text-white">{roomCode}</span>
+          {copied && (
+            <span className="text-green-300 text-xs font-bold">Copied!</span>
+          )}
+        </button>
+      </div>
 
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         <HostHeader onLeave={() => navigate('/')} onInviteClick={() => setShowInvite(true)} onSettingsClick={() => setShowSettings(true)} />
-        <RoomInfoCard roomName={session.roomName} hostName={session.hostName} guestCount={session.guests.length} code={roomCode!} onCopyCode={() => { navigator.clipboard.writeText(roomCode!); setCopied(true); setTimeout(() => setCopied(false), 2000); }} copied={copied} />
+        <RoomInfoCard roomName={session.roomName} hostName={session.hostName} guestCount={session.guests.length} />
 
         <div className="mt-8">
           {!session.isPartyStarted ? (
@@ -782,6 +805,7 @@ export default function HostDashboard() {
               isPlaybackDevice={playbackDevice === 'HOST'}
               roomCode={roomCode}
               triggerCrossfade={triggerCrossfade}
+              syncTime={syncTime} // 🔴 BUG FIX #1: Pass syncTime to MusicPlayer for syncing
               onTimeUpdate={async (syncTime) => {
                 // 🔴 NEW: Receive syncTime from MusicPlayer and write to Firebase
                 // syncTime format: Date.now() - (currentTime * 1000)

@@ -77,6 +77,7 @@ const MusicPlayer = memo(function MusicPlayer({
     const saved = localStorage.getItem('guestAudioEnabled');
     return saved === 'true';
   });
+  const [wakeLock, setWakeLock] = useState<any>(null); // 🔴 BUG FIX #3: Wake lock state
 
   const volumeHistoryRef = useRef<number[]>([]);
   const normalizationIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -111,6 +112,57 @@ const MusicPlayer = memo(function MusicPlayer({
   const BROADCAST_INTERVAL = 1000; // Broadcast position every 1s
   const SYNC_CHECK_INTERVAL = 2000; // Check sync every 2s
   const DRIFT_THRESHOLD = 3.0; // Max 3s drift before correction
+
+  // 🔴 BUG FIX #3: Wake Lock functions to keep screen on
+  const requestWakeLock = async () => {
+    try {
+      if (wakeLock !== null) return; // Already have wake lock
+      if ('wakeLock' in navigator) {
+        const lock = await (navigator as any).wakeLock.request('screen');
+        setWakeLock(lock);
+        console.log('🔒 Wake Lock acquired (playback device)');
+
+        // Re-acquire wake lock if released (e.g., screen briefly locked)
+        lock.addEventListener('release', async () => {
+          console.log('🔓 Wake Lock released, attempting to re-acquire...');
+          setWakeLock(null);
+          setTimeout(async () => {
+            if (isPlaying && isPlaybackDevice) {
+              await requestWakeLock();
+            }
+          }, 1000);
+        });
+      }
+    } catch (err) {
+      console.error('❌ Wake Lock error:', err);
+    }
+  };
+
+  const releaseWakeLock = async () => {
+    if (wakeLock !== null) {
+      try {
+        await wakeLock.release();
+        setWakeLock(null);
+        console.log('🔓 Wake Lock released');
+      } catch (err) {
+        console.error('❌ Wake Lock release error:', err);
+      }
+    }
+  };
+
+  // 🔴 BUG FIX #3: Acquire wake lock when playback device is playing
+  useEffect(() => {
+    if (isPlaybackDevice && isPlaying) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    // Cleanup on unmount
+    return () => {
+      releaseWakeLock();
+    };
+  }, [isPlaybackDevice, isPlaying]);
 
   // 🔴 NEW: Clear ALL playback timers (complete isolation)
   const clearAllPlaybackTimers = () => {

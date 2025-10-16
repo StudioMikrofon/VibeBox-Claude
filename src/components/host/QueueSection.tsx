@@ -351,7 +351,7 @@ export default function QueueSection({
   const sensors = useSensors(
     useSensor(TouchSensor, {
       activationConstraint: {
-        delay: 300, // 300ms hold before drag starts
+        delay: 1000, // 🔴 BUG FIX #8: 1000ms (1s) hold before drag starts on mobile
         tolerance: 20, // Allow up to 20px movement during hold (more forgiving on mobile)
       },
     }),
