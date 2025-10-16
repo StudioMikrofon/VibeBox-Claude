@@ -141,32 +141,43 @@ export default function GuestView() {
         }
 
         // SEPARATE LISTENER #1: Playback state ONLY (currentSong, isPlaying, syncTime)
-        playbackUnsubscribe = onSnapshot(doc(db, 'sessions', sessionDoc.id), (doc) => {
-          if (!doc.exists()) return;
+        playbackUnsubscribe = onSnapshot(
+          doc(db, 'sessions', sessionDoc.id),
+          {
+            includeMetadataChanges: false // 🔥 FIX: Ignore local writes to prevent sync loop
+          },
+          (doc) => {
+            if (!doc.exists()) return;
 
-          const data = doc.data();
+            const data = doc.data();
 
-          // ONLY update playback-related state
-          setCurrentSong(data.currentSong || null);
-          setIsPlaying(data.isPlaying || false);
+            // ONLY update playback-related state
+            setCurrentSong(data.currentSong || null);
+            setIsPlaying(data.isPlaying || false);
 
-          // 🔴 UPDATED: Read syncTime instead of currentTime
-          // syncTime format: Date.now() - (currentTime * 1000)
-          if (typeof data.syncTime === 'number') {
-            setSyncTime(data.syncTime);
+            // 🔴 UPDATED: Read syncTime instead of currentTime
+            // syncTime format: Date.now() - (currentTime * 1000)
+            if (typeof data.syncTime === 'number') {
+              setSyncTime(data.syncTime);
+            }
           }
-        });
+        );
 
         // SEPARATE LISTENER #2: Session data (queue, guests, roles, settings)
-        unsubscribe = onSnapshot(doc(db, 'sessions', sessionDoc.id), (doc) => {
-          if (doc.exists()) {
-            const data = doc.data();
-            let queue = data.queue || [];
+        unsubscribe = onSnapshot(
+          doc(db, 'sessions', sessionDoc.id),
+          {
+            includeMetadataChanges: false // 🔥 FIX: Ignore local writes
+          },
+          (doc) => {
+            if (doc.exists()) {
+              const data = doc.data();
+              let queue = data.queue || [];
 
-            // FIX: SORTIRAJ queue po votes (DESC) - najviše glasova GORE!
-            if (data.settings?.allowVoting) {
-              queue = [...queue].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
-            }
+              // FIX: SORTIRAJ queue po votes (DESC) - najviše glasova GORE!
+              if (data.settings?.allowVoting) {
+                queue = [...queue].sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
+              }
 
             const sessionData = {
               code: data.code,
@@ -656,7 +667,6 @@ export default function GuestView() {
     );
   }
 
-  const allUsers = [session.hostName, ...session.guests].filter(user => user !== guestName);
   const maxSongs = session.settings?.maxSongsPerGuest || 5;
   const canAddSongs = userSongCount < maxSongs;
 

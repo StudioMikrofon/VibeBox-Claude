@@ -1,10 +1,9 @@
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { db } from '../services/firebase';
 import { doc, updateDoc, arrayUnion, onSnapshot, DocumentData, runTransaction, arrayRemove, collection, addDoc, query, where } from 'firebase/firestore';
 import { Song } from '../types/song';
 import { SessionSettings, QuickMessage, PlaybackSession } from '../types/session';
-import { Headphones, VolumeX } from 'lucide-react';
 import HostHeader from '../components/host/HostHeader';
 import RoomInfoCard from '../components/host/RoomInfoCard';
 import StartPartyPrompt from '../components/host/StartPartyPrompt';
@@ -94,7 +93,6 @@ export default function HostDashboard() {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [showQuickReply, setShowQuickReply] = useState(false);
   const [replyRecipient, setReplyRecipient] = useState<string>('');
-  const [listenLocally, setListenLocally] = useState(true); // Host listens by default
 
   // 🔴 REMOVED: currentTimeRef (no longer needed, syncTime handled by MusicPlayer)
 
@@ -158,34 +156,46 @@ export default function HostDashboard() {
     if (!roomCode) return;
 
     // SEPARATE LISTENER #1: Playback state ONLY (currentSong, isPlaying, syncTime)
-    const playbackUnsubscribe = onSnapshot(doc(db, 'sessions', roomCode), (docSnapshot) => {
-      if (!docSnapshot.exists()) {
-        navigate('/');
-        return;
+    const playbackUnsubscribe = onSnapshot(
+      doc(db, 'sessions', roomCode),
+      {
+        includeMetadataChanges: false // 🔥 FIX: Ignore local writes to prevent broadcast loop
+      },
+      (docSnapshot) => {
+        if (!docSnapshot.exists()) {
+          navigate('/');
+          return;
+        }
+
+        const data = docSnapshot.data() as SessionData;
+
+        // ONLY update playback-related state
+        setCurrentSong(data.currentSong || null);
+        setIsPlaying(data.isPlaying || false);
       }
-
-      const data = docSnapshot.data() as SessionData;
-
-      // ONLY update playback-related state
-      setCurrentSong(data.currentSong || null);
-      setIsPlaying(data.isPlaying || false);
-    });
+    );
 
     // SEPARATE LISTENER #2: Session data (queue, guests, roles, settings)
-    const sessionUnsubscribe = onSnapshot(doc(db, 'sessions', roomCode), (docSnapshot) => {
-      if (docSnapshot.exists()) {
-        const data = docSnapshot.data() as SessionData;
-        setSession(data);
-        setQueue(data.queue || []);
-        setSettings({ ...defaultSettings, ...data.settings });
+    const sessionUnsubscribe = onSnapshot(
+      doc(db, 'sessions', roomCode),
+      {
+        includeMetadataChanges: false // 🔥 FIX: Ignore local writes
+      },
+      (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const data = docSnapshot.data() as SessionData;
+          setSession(data);
+          setQueue(data.queue || []);
+          setSettings({ ...defaultSettings, ...data.settings });
 
-        setPlaybackDevice(data.playbackDevice || 'HOST');
-        setDjName(data.djName || hostName);
-        setAdminUsers(data.adminUsers || []);
-      } else {
-        navigate('/');
+          setPlaybackDevice(data.playbackDevice || 'HOST');
+          setDjName(data.djName || hostName);
+          setAdminUsers(data.adminUsers || []);
+        } else {
+          navigate('/');
+        }
       }
-    });
+    );
 
     const messagesUnsubscribe = onSnapshot(
       query(collection(db, 'sessions', roomCode, 'messages'), where('to', '==', hostName)),
@@ -270,10 +280,17 @@ export default function HostDashboard() {
                   id: activity.metadata.songId || '',
                   title: activity.metadata.songTitle,
                   artist: '',
-                  duration: 0,
+                  channel: '',
+                  youtubeId: activity.metadata.songId?.replace('youtube-', '') || '',
+                  type: 'youtube' as const,
+                  thumbnailUrl: '',
                   addedBy: '',
+                  duration: 0,
+                  upvotes: [],
+                  downvotes: [],
                   votes: 0,
-                  thumbnailUrl: ''
+                  played: false,
+                  isPlaying: false
                 } : undefined,
                 autoDismiss: true,
                 dismissTime: 3000

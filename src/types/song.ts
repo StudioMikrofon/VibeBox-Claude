@@ -18,6 +18,7 @@ export interface Song {
   playedAt?: string | null;
   djBumped?: boolean;
   replayed?: boolean;
+  startedAt?: number; // Timestamp when song started playing
 }
 
 export function createYouTubeSong(

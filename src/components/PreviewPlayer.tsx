@@ -1,4 +1,4 @@
-import { X, Plus, Clock } from 'lucide-react';
+import { Plus, Clock } from 'lucide-react';
 import { formatDuration } from '../utils/formatters';
 
 interface PreviewPlayerProps {

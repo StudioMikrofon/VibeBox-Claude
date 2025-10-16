@@ -87,6 +87,9 @@ const MusicPlayer = memo(function MusicPlayer({
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const loadSongTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef<number>(0);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 5000;
 
   // 🔴 NEW: Separate broadcast and sync intervals
   const broadcastIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -128,43 +131,55 @@ const MusicPlayer = memo(function MusicPlayer({
     console.log('✅ All playback timers cleared');
   };
 
-  // 🔴 NEW: Broadcast interval (ONLY for playback device)
+  // 🔴 NEW: Broadcast interval (ONLY for playback device) - ONLY starts/stops based on device role
   useEffect(() => {
-    // 🔥 CRITICAL FIX: Clear old interval FIRST before starting new one!
+    // 🔥 CRITICAL FIX: Only re-run when playback device ROLE changes (not on every state update!)
+    console.log(`🎛️ Playback device role: ${isPlaybackDevice ? 'BROADCAST MODE' : 'SYNC/IDLE MODE'}`);
+
+    // Clear any existing interval
     if (broadcastIntervalRef.current) {
-      console.log('🧹 Clearing old broadcast interval before starting new one');
+      console.log('🧹 Clearing broadcast interval (role changed)');
       clearInterval(broadcastIntervalRef.current);
       broadcastIntervalRef.current = null;
     }
 
+    // Only start broadcast if we're the playback device AND player is ready
     if (!isReady || !isPlaybackDevice || !onTimeUpdate) {
       return;
     }
 
-    console.log('📡 Starting broadcast mode (1s interval)');
+    console.log('📡 Starting broadcast mode (1s interval) - will NOT restart on state changes');
 
     broadcastIntervalRef.current = setInterval(() => {
       const player = primaryPlayerRef.current;
       if (!player || typeof player.getCurrentTime !== 'function') return;
 
-      const currentTime = player.getCurrentTime();
+      // 🔥 SAFE: Use fallback to prevent TypeError
+      const currentTime = player.getCurrentTime() || 0;
+
+      // 🔥 OPTIMIZATION: Skip broadcast if paused (player state !== 1)
+      const playerState = player.getPlayerState?.();
+      if (playerState !== 1) {
+        // console.log('⏸️ Player paused, skipping broadcast');
+        return; // Skip this broadcast but keep interval running
+      }
 
       // 🔴 CRITICAL: Broadcast syncTime as Date.now() - (currentTime * 1000)
       const syncTime = Date.now() - (currentTime * 1000);
 
       onTimeUpdate(syncTime);
 
-      console.log(`📡 Broadcasting syncTime: ${syncTime}, currentTime: ${currentTime.toFixed(1)}s`);
+      console.log(`📡 Broadcasting: currentTime=${currentTime.toFixed(1)}s, playerState=${playerState}`);
     }, BROADCAST_INTERVAL);
 
     return () => {
       if (broadcastIntervalRef.current) {
-        console.log('🧹 Cleanup: clearing broadcast interval');
+        console.log('🧹 Cleanup: clearing broadcast interval on unmount');
         clearInterval(broadcastIntervalRef.current);
         broadcastIntervalRef.current = null;
       }
     };
-  }, [isReady, isPlaybackDevice, onTimeUpdate, activePlayer]);
+  }, [isReady, isPlaybackDevice, onTimeUpdate]); // 🔥 REMOVED activePlayer from deps!
 
   // 🔴 NEW: Sync interval (ONLY for non-playback devices)
   useEffect(() => {
@@ -189,10 +204,11 @@ const MusicPlayer = memo(function MusicPlayer({
         return;
       }
 
-      const player = primaryPlayerRef.current;
+      // 🔥 FIX: Use dynamically calculated player ref instead of activePlayer dependency
+      const player = activePlayer === 1 ? player1Ref.current : player2Ref.current;
       if (!player || typeof player.getCurrentTime !== 'function') return;
 
-      const playerTime = player.getCurrentTime();
+      const playerTime = player.getCurrentTime() || 0;
 
       // 🔴 CRITICAL: Calculate expected time from syncTime
       const expectedTime = (now - syncTime) / 1000;
@@ -214,7 +230,7 @@ const MusicPlayer = memo(function MusicPlayer({
         syncIntervalRef.current = null;
       }
     };
-  }, [isReady, isPlaybackDevice, isHost, syncTime, activePlayer]);
+  }, [isReady, isPlaybackDevice, isHost, syncTime]);
 
   // Save playback progress every 5 seconds
   useEffect(() => {
@@ -446,6 +462,53 @@ const MusicPlayer = memo(function MusicPlayer({
     if (onToggleAudio) onToggleAudio(newValue);
   };
 
+  // 🔴 NEW: YouTube error handler with retry logic
+  const onPlayerError = (event: any, playerId: number) => {
+    const errorCode = event.data;
+    console.error(`❌ YouTube Error ${errorCode} on Player ${playerId}`);
+
+    switch (errorCode) {
+      case 2: // Invalid video ID
+        console.log('⏭️ Invalid video ID, skipping...');
+        if (isHost || isDJ) {
+          setTimeout(() => onNext(), 1000);
+        }
+        break;
+
+      case 5: // HTML5 player error (often temporary)
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current++;
+          console.log(`⏳ HTML5 error, retrying... (${retryCountRef.current}/${MAX_RETRIES})`);
+
+          setTimeout(() => {
+            const player = playerId === 1 ? player1Ref.current : player2Ref.current;
+            player?.playVideo();
+          }, RETRY_DELAY);
+        } else {
+          console.log('❌ Max retries reached, skipping song');
+          retryCountRef.current = 0;
+          if (isHost || isDJ) {
+            setTimeout(() => onNext(), 1000);
+          }
+        }
+        break;
+
+      case 100: // Video not found
+      case 101: // Embedding disabled
+      case 150: // Same as 101
+        console.log(`⏭️ Video unavailable (error ${errorCode}), skipping...`);
+        if (isHost || isDJ) {
+          setTimeout(() => onNext(), 1000);
+        }
+        break;
+
+      default:
+        console.error(`❓ Unknown error: ${errorCode}`);
+        // Don't skip on unknown errors, might be temporary
+        break;
+    }
+  };
+
   useEffect(() => {
     if (window.YT && window.YT.Player) {
       setIsReady(true);
@@ -474,12 +537,16 @@ const MusicPlayer = memo(function MusicPlayer({
     if (!isReady) return;
     if (player1Ref.current && player2Ref.current) return;
   
-    const createPlayer = (id: string, onStateChange: (e: any) => void) => {
+    const createPlayer = (id: string, onStateChange: (e: any) => void, playerId: number) => {
       return new window.YT.Player(id, {
         height: '0',
         width: '0',
         playerVars: { autoplay: 0, controls: 0 },
-        events: { onReady: () => onPlayerReady(id), onStateChange }
+        events: {
+          onReady: () => onPlayerReady(id),
+          onStateChange,
+          onError: (e: any) => onPlayerError(e, playerId)
+        }
       });
     };
 
@@ -519,8 +586,8 @@ const MusicPlayer = memo(function MusicPlayer({
         }, 200);
     }
 
-    player1Ref.current = createPlayer('youtube-player-1', e => e.data === 0 && activePlayer === 1 && onSongEnd());
-    player2Ref.current = createPlayer('youtube-player-2', e => e.data === 0 && activePlayer === 2 && onSongEnd());
+    player1Ref.current = createPlayer('youtube-player-1', e => e.data === 0 && activePlayer === 1 && onSongEnd(), 1);
+    player2Ref.current = createPlayer('youtube-player-2', e => e.data === 0 && activePlayer === 2 && onSongEnd(), 2);
   }, [isReady, currentSong, activePlayer, isPlaying, isPlaybackDevice, volume, isMuted, onSongEnd]);
 
   useEffect(() => {
@@ -604,6 +671,7 @@ const MusicPlayer = memo(function MusicPlayer({
       currentSongIdRef.current = songId;
       crossfadeStartedRef.current = false;
       volumeHistoryRef.current = [];
+      retryCountRef.current = 0; // Reset retry counter on new song load
       const videoId = songId.replace('youtube-', '');
       setCurrentTime(0);
       setDuration(0);
