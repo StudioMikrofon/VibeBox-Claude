@@ -28,69 +28,46 @@
 
 ## 🏗️ Refactoring Phases
 
-### **Phase 1: Planning & Preparation** ⏱️ 1-2h
+### **Phase 1: Planning & Preparation** ⏱️ 1-2h ✅ COMPLETE
 - [x] Analyze current MusicPlayer.tsx architecture
 - [x] Document current state flow
 - [x] Create this refactoring plan
-- [ ] Design PlayDirector interface
-- [ ] Design Intent types
-- [ ] Design FSM state transitions
-- [ ] Create backup branch: `git checkout -b refactor/play-director`
+- [x] Design PlayDirector interface
+- [x] Design Intent types
+- [x] Design FSM state transitions
+- [x] Create backup branch: `git checkout -b refactor/play-director`
 
-### **Phase 2: PlayDirector Core Module** ⏱️ 3-4h
-- [ ] Create `src/services/PlayDirector.ts`
-- [ ] Implement FSM with states:
-  ```typescript
-  type PlaybackState =
-    | 'IDLE'           // No song loaded
-    | 'PREPARING'      // Loading song, setting up player
-    | 'PLAYING'        // Active playback
-    | 'XFADING'        // Crossfade in progress
-    | 'PAUSED'         // Paused by user
-    | 'ERROR'          // Error state
-  ```
-- [ ] Implement Intent handler:
-  ```typescript
-  type Intent =
-    | { type: 'QUEUE_ADD', song: Song }
-    | { type: 'QUEUE_REORDER', queue: Song[] }
-    | { type: 'SKIP', direction: 'next'|'previous' }
-    | { type: 'PLAY' }
-    | { type: 'PAUSE' }
-    | { type: 'CROSSFADE_TO_NEXT' }
-    | { type: 'LOAD_SONG', song: Song, startAt: number }
-    | { type: 'RESET_TRACK', song: Song }
-  ```
-- [ ] Implement singleton pattern
-- [ ] Add state transition logging
-- [ ] Add error handling
+### **Phase 2: PlayDirector Core Module** ⏱️ 3-4h ✅ COMPLETE
+- [x] Create `src/services/PlayDirector.ts`
+- [x] Implement FSM with states (IDLE, PREPARING, PLAYING, XFADING, PAUSED, ERROR)
+- [x] Implement Intent handler (11 intent types)
+- [x] Implement singleton pattern
+- [x] Add state transition logging
+- [x] Add error handling
+- [x] Created `src/types/playback.ts` with all type definitions
 
-### **Phase 3: Track Runtime & Reset** ⏱️ 1-2h
-- [ ] Add `runtimeId` to Song type (or create Track wrapper):
-  ```typescript
-  interface TrackRuntime {
-    song: Song;
-    runtimeId: string;      // UUID for this playback instance
-    resumeAt: number;        // Start position (0 for fresh)
-    lastKnownPosition: number;
-    startedAt: number;       // Timestamp when started
-  }
-  ```
-- [ ] Implement `resetTrackRuntime()` function
-- [ ] Update history replay logic to always reset to 0:00
-- [ ] Clear localStorage progress for replayed tracks
+### **Phase 3: Track Runtime & Reset** ⏱️ 1-2h ✅ COMPLETE
+- [x] Add `runtimeId` to TrackRuntime interface in playback.ts
+- [x] Implement `createTrackRuntime()` helper function
+- [x] Implement `resetTrackRuntime()` function
+- [x] Update resetTrack() in PlayDirector with full cleanup
+- [x] skipNext/skipPrevious always clear intervals and timers
 
-### **Phase 4: Refactor MusicPlayer to use PlayDirector** ⏱️ 2-3h
-- [ ] Replace direct prop calls with Intent dispatch
-- [ ] Remove scattered useEffect logic → move to PlayDirector
-- [ ] Keep MusicPlayer as "dumb" UI component
-- [ ] PlayDirector manages:
-  - Player instances (player1Ref, player2Ref)
-  - Active player switching
-  - Crossfade intervals
-  - Broadcast intervals
-  - Sync intervals
-- [ ] MusicPlayer only renders UI based on PlayDirector state
+### **Phase 4: Refactor MusicPlayer to use PlayDirector** ⏱️ 2-3h 🔄 IN PROGRESS
+**Phase 4A: ✅ COMPLETE**
+- [x] Create `src/hooks/usePlayDirector.ts` React hook
+- [x] Hook manages singleton lifecycle, subscribes to callbacks
+- [x] Export helper functions for creating intents
+- [x] Create `MusicPlayerPlayDirectorPOC.tsx` test component
+- [x] Update hook with onCrossfadeNeeded callback
+
+**Phase 4B: 🔄 IN PROGRESS (Complex - needs more planning)**
+- [ ] Add `usePlayDirector?: boolean` flag to SessionSettings (Firebase)
+- [ ] Add conditional rendering in HostDashboard/GuestView
+- [ ] Create `MusicPlayerV2.tsx` - full implementation with PlayDirector
+- [ ] Test V2 with flag on dev environment
+- [ ] If stable, replace MusicPlayer.tsx with V2
+- [ ] Remove old MusicPlayer.tsx (keep as .old backup)
 
 ### **Phase 5: Server-Based Room Clock** ⏱️ 1-2h
 - [ ] Add `roomClock` field to Firebase session:
@@ -104,13 +81,16 @@
 - [ ] Playback device sends heartbeat with `nowPlaying`, `position`, `runtimeId`
 - [ ] Other clients display, don't broadcast
 
-### **Phase 6: Crossfade Improvements** ⏱️ 1-2h
-- [ ] Refactor crossfade to use proper A/B cleanup
-- [ ] Implement exponential gain ramp option
-- [ ] Add hard-mute + destroy for old player instance
-- [ ] Prevent ghost-player loops
-- [ ] Add YouTube-specific fallback (hard cut if needed)
-- [ ] Abstract audio source for future (YT|SPOT|FILE)
+### **Phase 6: Crossfade Improvements** ⏱️ 1-2h ✅ COMPLETE
+- [x] Refactor crossfade to use proper A/B cleanup in PlayDirector
+- [x] Implement volume ramping (50ms steps, linear gain)
+- [x] Add hard-mute + pause + stop for old player instance
+- [x] Prevent ghost-player loops (clearAllIntervals on skip)
+- [x] Auto-crossfade detection (checkAutoCrossfade every 1s)
+- [x] onCrossfadeNeeded callback for external component
+- [ ] (Future) Implement exponential gain ramp option
+- [ ] (Future) Add YouTube-specific fallback (hard cut if needed)
+- [ ] (Future) Abstract audio source for future (YT|SPOT|FILE)
 
 ### **Phase 7: UI/UX Fixes** ⏱️ 1-2h
 - [ ] **Room Code**: Move from fixed position to header container
