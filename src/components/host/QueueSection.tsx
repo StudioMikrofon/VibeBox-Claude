@@ -34,7 +34,6 @@ function SortableQueueItem({
   song,
   index,
   allowVoting,
-  isHost,
   isDJ,
   hostName,
   onVote,
@@ -46,7 +45,6 @@ function SortableQueueItem({
   song: Song;
   index: number;
   allowVoting: boolean;
-  isHost: boolean;
   isDJ: boolean;
   hostName: string;
   onVote: (songId: string, type: 'up' | 'down') => void;
@@ -62,9 +60,9 @@ function SortableQueueItem({
     transform,
     transition,
     isDragging
-  } = useSortable({ 
-    id: song.id, 
-    disabled: !isDJ && !isHost
+  } = useSortable({
+    id: song.id,
+    disabled: !isDJ  // 🔴 BUG FIX #9: Only DJ can drag-and-drop (NOT host unless they are DJ)
   });
 
   const style = {
@@ -86,8 +84,8 @@ function SortableQueueItem({
     >
       {/* DESKTOP LAYOUT */}
       <div className="hidden lg:flex items-center gap-2 md:gap-4">
-        {/* Drag Handle - ZA HOSTA I DJ-A */}
-        {(isDJ || isHost) && (
+        {/* 🔴 BUG FIX #9: Drag Handle - ONLY FOR DJ */}
+        {isDJ && (
           <div
             {...attributes}
             {...listeners}
@@ -137,8 +135,8 @@ function SortableQueueItem({
           </div>
         </div>
 
-        {/* HOST CONTROLS */}
-        {isHost && (
+        {/* 🔴 BUG FIX #10: DJ CONTROLS - Play Now & Next buttons */}
+        {isDJ && (
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() => onPlayNow(song)}
@@ -204,8 +202,8 @@ function SortableQueueItem({
           </div>
         )}
 
-        {/* Remove Button */}
-        {isHost && (
+        {/* 🔴 BUG FIX #10: Remove Button - ONLY FOR DJ */}
+        {isDJ && (
           <button
             onClick={() => onRemove(song.id)}
             className="p-2 bg-red-500/20 hover:bg-red-500/40 text-red-400 rounded-lg transition-all flex-shrink-0"
@@ -220,8 +218,8 @@ function SortableQueueItem({
       <div className="lg:hidden space-y-2">
         {/* Red 1: Song Info - thumbnail & title maksimalno lijevo */}
         <div className="flex items-center gap-2">
-          {/* Drag Handle - ZA HOSTA I DJ-A (Mobile) */}
-          {(isDJ || isHost) && (
+          {/* 🔴 BUG FIX #9: Drag Handle - ONLY FOR DJ (Mobile) */}
+          {isDJ && (
             <div
               {...attributes}
               {...listeners}
@@ -262,13 +260,13 @@ function SortableQueueItem({
         </div>
 
         {/* Red 2: Medal/Number + Controls */}
-        <div className={`flex items-center gap-1.5 ${(isDJ || isHost) ? 'pl-[28px]' : 'pl-6'}`}>
+        <div className={`flex items-center gap-1.5 ${isDJ ? 'pl-[28px]' : 'pl-6'}`}>
           {/* Medal/Number - lijevo od Play gumba */}
           <div className="text-base font-bold text-secondary w-5 text-center flex-shrink-0">
             {getTrophyIcon(index)}
           </div>
-          {/* Host Controls */}
-          {isHost && (
+          {/* 🔴 BUG FIX #10: DJ Controls (Mobile) - Play Now & Next buttons */}
+          {isDJ && (
             <div className="flex items-center gap-1">
               <button
                 onClick={() => onPlayNow(song)}
@@ -374,7 +372,7 @@ export default function QueueSection({
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
 
-    if (!over || active.id === over.id || (!isDJ && !isHost)) return;
+    if (!over || active.id === over.id || !isDJ) return;  // 🔴 BUG FIX #9: Only DJ can reorder
 
     const oldIndex = queue.findIndex((s) => s.id === active.id);
     const newIndex = queue.findIndex((s) => s.id === over.id);
@@ -483,7 +481,7 @@ export default function QueueSection({
           <div>
             <h4 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
               <span>🎵 Up Next</span>
-              {(isDJ || isHost) && <span className="hidden md:inline text-xs text-gray-500">(Drag to reorder)</span>}
+              {isDJ && <span className="hidden md:inline text-xs text-gray-500">(Drag to reorder)</span>}
             </h4>
             <DndContext
               sensors={sensors}
@@ -501,7 +499,6 @@ export default function QueueSection({
                       song={song}
                       index={idx}
                       allowVoting={allowVoting}
-                      isHost={isHost}
                       isDJ={isDJ}
                       hostName={hostName}
                       onVote={onVote}

@@ -906,8 +906,8 @@ const MusicPlayer = memo(function MusicPlayer({
             normalization={normalization}
           />
 
-          {/* PROGRESS BAR - SAMO ZA DJ/HOST */}
-          {(isHost || isDJ) && (
+          {/* 🔴 BUG FIX #13: PROGRESS BAR - ONLY FOR DJ (NOT HOST UNLESS THEY ARE DJ) */}
+          {isDJ && (
             <ProgressBar
               currentTime={currentTime}
               duration={duration}
@@ -917,8 +917,8 @@ const MusicPlayer = memo(function MusicPlayer({
             />
           )}
 
-          {/* PLAYBACK CONTROLS - SAMO ZA DJ/HOST */}
-          {(isHost || isDJ) ? (
+          {/* 🔴 BUG FIX #13: PLAYBACK CONTROLS - ONLY FOR DJ (NOT HOST UNLESS THEY ARE DJ) */}
+          {isDJ ? (
             <PlayerControls
               isPlaying={isPlaying}
               onPlayPause={onPlayPause}
@@ -947,8 +947,8 @@ const MusicPlayer = memo(function MusicPlayer({
             onNormalizationToggle={() => setNormalization(!normalization)}
           />
 
-          {/* ✅ BUG FIX #5: LISTEN ON MY DEVICE - ONLY FOR GUESTS */}
-          {!isHost && onToggleAudio && (
+          {/* 🔴 BUG FIX #4 & #5: LISTEN ON MY DEVICE - FOR ALL USERS (HOST + GUESTS) */}
+          {onToggleAudio && (
             <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/10">
               <div className="flex items-center gap-2">
                 {audioEnabled ? (

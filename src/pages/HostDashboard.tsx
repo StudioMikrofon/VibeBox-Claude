@@ -778,6 +778,7 @@ export default function HostDashboard() {
               crossfadeDuration={settings.crossfadeDuration || 0}
               manualSkipCrossfade={settings.manualSkipCrossfade || 3}
               isHost={true}
+              isDJ={djName === hostName}
               isPlaybackDevice={playbackDevice === 'HOST'}
               roomCode={roomCode}
               triggerCrossfade={triggerCrossfade}
@@ -790,6 +791,10 @@ export default function HostDashboard() {
                 } catch (error) {
                   console.error('Error updating syncTime:', error);
                 }
+              }}
+              onToggleAudio={(enabled) => {
+                // 🔴 BUG FIX #5: Host can mute local audio (stored in localStorage)
+                localStorage.setItem('hostAudioEnabled', enabled ? 'true' : 'false');
               }}
             />
           )}
@@ -842,7 +847,7 @@ export default function HostDashboard() {
               </div>
             )}
 
-            <QueueSection 
+            <QueueSection
               queue={queue}
               previousSong={previousSong}
               allowVoting={settings.votingEnabled}
@@ -855,6 +860,7 @@ export default function HostDashboard() {
               onReorderQueue={handleReorderQueue}
               hostName={hostName}
               isHost={true}
+              isDJ={djName === hostName}
             />
           </div>
 
