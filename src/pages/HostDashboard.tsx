@@ -8,6 +8,7 @@ import HostHeader from '../components/host/HostHeader';
 import RoomInfoCard from '../components/host/RoomInfoCard';
 import StartPartyPrompt from '../components/host/StartPartyPrompt';
 import MusicPlayer from '../components/MusicPlayer';
+import MusicPlayerPlayDirectorPOC from '../components/MusicPlayerPlayDirectorPOC'; // 🧪 POC Component
 import GuestsCard from '../components/host/GuestsCard';
 import QueueSection from '../components/host/QueueSection';
 import AddSongModal from '../components/AddSongModal';
@@ -94,6 +95,7 @@ export default function HostDashboard() {
   const [showQuickReply, setShowQuickReply] = useState(false);
   const [replyRecipient, setReplyRecipient] = useState<string>('');
   const [syncTime, setSyncTime] = useState<number>(); // 🔴 BUG FIX #1: Host needs to sync when NOT playback device
+  const [usePlayDirectorPOC, setUsePlayDirectorPOC] = useState(false); // 🧪 Toggle for PlayDirector POC
 
   // 🔴 REMOVED: currentTimeRef (no longer needed, syncTime handled by MusicPlayer)
 
@@ -789,38 +791,78 @@ export default function HostDashboard() {
           />
           
           ) : (
-            <MusicPlayer
-              currentSong={currentSong ?? null}
-              nextSong={queue[0] || null}
-              previousSong={previousSong}
-              isPlaying={isPlaying ?? false}
-              onSongEnd={handleSongEnd}
-              onPlayPause={handlePlayPause}
-              onNext={handleNext}
-              onPrevious={handlePrevious}
-              crossfadeDuration={settings.crossfadeDuration || 0}
-              manualSkipCrossfade={settings.manualSkipCrossfade || 3}
-              isHost={true}
-              isDJ={djName === hostName}
-              isPlaybackDevice={playbackDevice === 'HOST'}
-              roomCode={roomCode}
-              triggerCrossfade={triggerCrossfade}
-              syncTime={syncTime} // 🔴 BUG FIX #1: Pass syncTime to MusicPlayer for syncing
-              onTimeUpdate={async (syncTime) => {
-                // 🔴 NEW: Receive syncTime from MusicPlayer and write to Firebase
-                // syncTime format: Date.now() - (currentTime * 1000)
-                if (!roomCode) return;
-                try {
-                  await updateDoc(doc(db, 'sessions', roomCode), { syncTime });
-                } catch (error) {
-                  console.error('Error updating syncTime:', error);
-                }
-              }}
-              onToggleAudio={(enabled) => {
-                // 🔴 BUG FIX #5: Host can mute local audio (stored in localStorage)
-                localStorage.setItem('hostAudioEnabled', enabled ? 'true' : 'false');
-              }}
-            />
+            <>
+              {/* 🧪 PlayDirector POC Toggle Button */}
+              <div className="mb-4 flex justify-center">
+                <button
+                  onClick={() => setUsePlayDirectorPOC(!usePlayDirectorPOC)}
+                  className={`px-4 py-2 rounded-lg font-semibold transition-all ${
+                    usePlayDirectorPOC
+                      ? 'bg-yellow-500 text-black hover:bg-yellow-600'
+                      : 'bg-gray-700 text-white hover:bg-gray-600'
+                  }`}
+                >
+                  {usePlayDirectorPOC ? '🧪 POC Mode (PlayDirector)' : '📀 Normal Mode (Current)'}
+                </button>
+              </div>
+
+              {usePlayDirectorPOC ? (
+                <MusicPlayerPlayDirectorPOC
+                  currentSong={currentSong ?? null}
+                  nextSong={queue[0] || null}
+                  previousSong={previousSong}
+                  isPlaying={isPlaying ?? false}
+                  onSongEnd={handleSongEnd}
+                  onPlayPause={handlePlayPause}
+                  onNext={handleNext}
+                  onPrevious={handlePrevious}
+                  crossfadeDuration={settings.crossfadeDuration || 0}
+                  manualSkipCrossfade={settings.manualSkipCrossfade || 3}
+                  isPlaybackDevice={playbackDevice === 'HOST'}
+                  onTimeUpdate={async (syncTime) => {
+                    if (!roomCode) return;
+                    try {
+                      await updateDoc(doc(db, 'sessions', roomCode), { syncTime });
+                    } catch (error) {
+                      console.error('Error updating syncTime:', error);
+                    }
+                  }}
+                />
+              ) : (
+                <MusicPlayer
+                  currentSong={currentSong ?? null}
+                  nextSong={queue[0] || null}
+                  previousSong={previousSong}
+                  isPlaying={isPlaying ?? false}
+                  onSongEnd={handleSongEnd}
+                  onPlayPause={handlePlayPause}
+                  onNext={handleNext}
+                  onPrevious={handlePrevious}
+                  crossfadeDuration={settings.crossfadeDuration || 0}
+                  manualSkipCrossfade={settings.manualSkipCrossfade || 3}
+                  isHost={true}
+                  isDJ={djName === hostName}
+                  isPlaybackDevice={playbackDevice === 'HOST'}
+                  roomCode={roomCode}
+                  triggerCrossfade={triggerCrossfade}
+                  syncTime={syncTime} // 🔴 BUG FIX #1: Pass syncTime to MusicPlayer for syncing
+                  onTimeUpdate={async (syncTime) => {
+                    // 🔴 NEW: Receive syncTime from MusicPlayer and write to Firebase
+                    // syncTime format: Date.now() - (currentTime * 1000)
+                    if (!roomCode) return;
+                    try {
+                      await updateDoc(doc(db, 'sessions', roomCode), { syncTime });
+                    } catch (error) {
+                      console.error('Error updating syncTime:', error);
+                    }
+                  }}
+                  onToggleAudio={(enabled) => {
+                    // 🔴 BUG FIX #5: Host can mute local audio (stored in localStorage)
+                    localStorage.setItem('hostAudioEnabled', enabled ? 'true' : 'false');
+                  }}
+                />
+              )}
+            </>
           )}
         </div>
 
