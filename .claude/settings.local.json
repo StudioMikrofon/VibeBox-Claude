@@ -1,18 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run typecheck)",
-      "Bash(npm run dev)",
-      "Bash(npm install)",
-      "Bash(npm run build)",
-      "Bash(firebase deploy:*)",
-      "Bash(npm run preview)",
+      "Bash(npm run typecheck:*)",
+      "Bash(npm run build:*)",
       "Bash(git add:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nFix all 7 critical bugs: sync loop, auto-play, UI responsiveness, and role management\n\nBug #1: Fixed infinite guest sync loop by implementing playback device validation\n- Added isPlaybackDevice check before syncing to prevent non-playback devices from creating loops\n- Implemented 2-second cooldown mechanism between sync operations\n- Increased drift threshold from 2s to 3s for less aggressive syncing\n- Only playback device broadcasts time updates to Firebase\n\nBug #2: Fixed auto-play after app re-entry\n- Added isPlaybackDevice validation in loadInitialSong and loadVideoById\n- Only playback device can trigger auto-play on initial load\n- Prevents unwanted playback when user reopens paused session\n\nBug #3: ''Listen on My Device'' toggle visibility\n- Already fixed in existing codebase (verified in lines 757-788)\n\nBug #4: DJ control transfer now activates playlist immediately\n- Auto-enables listenLocally when user becomes DJ in GuestView\n- New DJ gets immediate access to playback controls\n\nBug #5: Fixed party code overflow on mobile\n- Implemented responsive flex layout (flex-col on mobile, flex-row on desktop)\n- Party code positioned top on mobile, right side on desktop\n- Added responsive text sizes (text-lg md:text-2xl lg:text-3xl)\n\nBug #6: Guest list buttons visibility for all users\n- Added message button (💬) visible to ALL users\n- Kick button (❌) remains admin-only\n- Applied to both host and guest cards\n\nBug #7: Song title scroll on mobile devices\n- Applied existing CSS marquee classes to song titles\n- Used mobile-marquee and mobile-marquee-text classes\n- Works in both desktop and mobile layouts\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")",
+      "Bash(git commit:*)",
+      "Bash(git push)",
+      "Bash(firebase deploy:*)",
       "Bash(git push:*)",
-      "Bash(git log:*)",
-      "Bash(git remote set-url:*)",
-      "Bash(git commit -m \"$(cat <<''EOF''\nFix UI bugs: message icon visibility, remove duplicate buttons, verify clean architecture\n\nBug #1: Message icon now always visible for all users\n- Removed opacity-0 class from message buttons in GuestList\n- Message icons (💬) now visible by default instead of only on hover\n- Applied to both host and guest message buttons in GuestView.tsx\n\nBug #3 & #5: Removed duplicate UI controls from header\n- Removed duplicate \"Listen on My Device\" toggle from header (lines 681-704)\n- Removed duplicate \"Messages\" button from header (lines 716-746)\n- These controls are now ONLY available in their proper locations:\n  * \"Listen on My Device\": Inside MusicPlayer component only\n  * Messages: Via icons in GuestList next to each user\n- Cleaned up unused imports (MessageCircle, Headphones, VolumeX)\n- Removed unused showMessageDropdown state variable\n\nBug #2: Verified guest list has no blur filters\n- Checked GuestsCard component - no blur-sm or blur filters present\n- Container uses clean gradient background without blur effects\n\nBug #4: Verified toggle doesn''t affect playback\n- onToggleAudio callback only updates localStorage, not Firestore\n- Toggle is local-only and doesn''t trigger playback state changes\n- Architecture already correct per requirements\n\nUpdated instructions document with completed fixes\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
+      "Bash(git branch:*)"
     ],
     "deny": [],
     "ask": []

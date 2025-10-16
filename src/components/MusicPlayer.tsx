@@ -95,6 +95,14 @@ const MusicPlayer = memo(function MusicPlayer({
   const broadcastIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // 🔥 CRITICAL FIX: Store onTimeUpdate in ref to prevent interval restart
+  const onTimeUpdateRef = useRef(onTimeUpdate);
+
+  // Keep ref up to date
+  useEffect(() => {
+    onTimeUpdateRef.current = onTimeUpdate;
+  }, [onTimeUpdate]);
+
   const primaryPlayerRef = activePlayer === 1 ? player1Ref : player2Ref;
 
   // Constants for playback sync
@@ -131,9 +139,9 @@ const MusicPlayer = memo(function MusicPlayer({
     console.log('✅ All playback timers cleared');
   };
 
-  // 🔴 NEW: Broadcast interval (ONLY for playback device) - ONLY starts/stops based on device role
+  // 🔴 EFFECT 1: Broadcast interval - ONLY re-runs when playback device ROLE changes
+  // This is the CORE FIX: NO dependencies on functions that change every render!
   useEffect(() => {
-    // 🔥 CRITICAL FIX: Only re-run when playback device ROLE changes (not on every state update!)
     console.log(`🎛️ Playback device role: ${isPlaybackDevice ? 'BROADCAST MODE' : 'SYNC/IDLE MODE'}`);
 
     // Clear any existing interval
@@ -144,14 +152,15 @@ const MusicPlayer = memo(function MusicPlayer({
     }
 
     // Only start broadcast if we're the playback device AND player is ready
-    if (!isReady || !isPlaybackDevice || !onTimeUpdate) {
+    if (!isReady || !isPlaybackDevice) {
       return;
     }
 
-    console.log('📡 Starting broadcast mode (1s interval) - will NOT restart on state changes');
+    console.log('📡 Starting broadcast mode (1s interval) - WILL NOT RESTART ON STATE CHANGES!');
 
     broadcastIntervalRef.current = setInterval(() => {
-      const player = primaryPlayerRef.current;
+      // 🔥 FIX: Use dynamic player reference (not from deps!)
+      const player = activePlayer === 1 ? player1Ref.current : player2Ref.current;
       if (!player || typeof player.getCurrentTime !== 'function') return;
 
       // 🔥 SAFE: Use fallback to prevent TypeError
@@ -167,7 +176,10 @@ const MusicPlayer = memo(function MusicPlayer({
       // 🔴 CRITICAL: Broadcast syncTime as Date.now() - (currentTime * 1000)
       const syncTime = Date.now() - (currentTime * 1000);
 
-      onTimeUpdate(syncTime);
+      // 🔥 FIX: Use ref instead of direct function call to prevent dependency
+      if (onTimeUpdateRef.current) {
+        onTimeUpdateRef.current(syncTime);
+      }
 
       console.log(`📡 Broadcasting: currentTime=${currentTime.toFixed(1)}s, playerState=${playerState}`);
     }, BROADCAST_INTERVAL);
@@ -179,7 +191,7 @@ const MusicPlayer = memo(function MusicPlayer({
         broadcastIntervalRef.current = null;
       }
     };
-  }, [isReady, isPlaybackDevice, onTimeUpdate]); // 🔥 REMOVED activePlayer from deps!
+  }, [isReady, isPlaybackDevice]); // 🔥 ONLY isReady and isPlaybackDevice - NO OTHER DEPS!
 
   // 🔴 NEW: Sync interval (ONLY for non-playback devices)
   useEffect(() => {

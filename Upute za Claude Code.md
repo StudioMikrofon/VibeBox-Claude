@@ -1,518 +1,442 @@
 <img src="https://r2cdn.perplexity.ai/pplx-full-logo-primary-dark%402x.png" style="height:64px;margin-right:32px"/>
 
-# 🎵 VIBEBOX - CRITICAL PLAYBACK REWRITE \& BUG FIXES FOR CLAUDE CODE
+# 🚨 CRITICAL PLAYBACK BUG ANALYSIS \#2 - Multiple Fatal Issues
 
-**Date**: 15. Listopada 2025. - 19:46 CEST
-**Priority**: 🔴 **HIGHEST** - Smooth, uninterrupted playback is \#1 priority for this app
+## ⚠️ ROOT CAUSES IDENTIFIED
+
+### **Issue \#1: Infinite Clear/Restart Loop** 🔥 MOST CRITICAL
+
+**Evidence**:
+
+```
+📡 Broadcasting syncTime: 1760572620918, currentTime: 0.0s
+🧹 Cleanup: clearing broadcast interval
+📡 Starting broadcast mode (1s interval)
+📡 Broadcasting syncTime: 1760572621933, currentTime: 0.0s
+🧹 Cleanup: clearing broadcast interval
+📡 Starting broadcast mode (1s interval)
+[repeats infinitely]
+```
+
+**Problem**: The broadcast interval is being **cleared and restarted every single second**. This means:
+
+- Interval broadcasts once
+- Immediately gets cleared
+- Immediately restarts
+- Broadcasts again
+- Gets cleared again
+- Infinite loop
+
+**Root Cause**: The `useEffect` that manages broadcasting is re-running on **every broadcast** because Firebase updates are triggering it. This creates a vicious cycle:
+
+1. Broadcast updates Firebase →
+2. Firebase update triggers `useEffect` →
+3. `useEffect` clears and restarts interval →
+4. Interval broadcasts again →
+5. Back to step 1
 
 ***
 
-## 🚨 CRITICAL INSTRUCTION FOR CLAUDE CODE
+### **Issue \#2: YouTube API 503 Service Unavailable** 🔥 CRITICAL
 
-**COMPLETE PLAYBACK MAKEOVER REQUIRED**
+**Evidence**:
 
-You must **thoroughly review and rewrite the entire playback system** to ensure:
+```
+POST https://www.youtube.com/youtubei/v1/embedded_player?prettyPrint=false 503 (Service Unavailable)
+POST https://www.youtube.com/youtubei/v1/player?prettyPrint=false 503 (Service Unavailable)
+[repeated 3+ times]
+```
 
-1. **Smooth and uninterrupted playback** is the \#1 priority[^1]
-2. **Complete isolation**: Playback logic must be **completely separated** from all other app functions
-3. **Zero interference**: Nothing should affect playback — not voting, not screen lock on guest devices, not adding songs, not any other user interactions
-4. **Single source of truth**: Only ONE device (playback device) controls audio; all others sync passively
-5. **Robust sync system**: Create a new, reliable synchronization mechanism that works regardless of network conditions or user actions
+**Problem**: YouTube API is returning **503 errors** (service unavailable). This could be due to:
+
+- Rate limiting from too many API requests
+- YouTube temporarily blocking your IP/domain
+- Network issue
+- Invalid API key or domain restrictions
+
+**Consequence**: Player cannot load videos, stays stuck at 0s.
 
 ***
 
-## 🎯 PLAYBACK SYSTEM REQUIREMENTS
+### **Issue \#3: TypeError - Cannot Read `toFixed` of Undefined**
 
-### **Core Principles**
+**Evidence**:
 
-**Playback Must Be Isolated From**:
+```
+Uncaught TypeError: Cannot read properties of undefined (reading 'toFixed')
+    at index-C6WTnL0D.js:3390:10556
+```
 
-- Voting system (upvote/downvote)
-- Adding/removing songs from queue
-- Guest list updates
-- Message system
-- Screen lock/unlock on mobile devices
-- App switching (going to WhatsApp and returning)
-- Role transfers (DJ, Admin, Playback Device)
-- Settings changes
-- Any UI interactions
-
-**Architecture Pattern**:
+**Problem**: Code is trying to call `.toFixed()` on `undefined`. This happens when:
 
 ```typescript
-// ✅ CORRECT: Separate Firebase listeners
+const currentTime = player1Ref.current?.getCurrentTime(); // Returns undefined
+console.log(`currentTime: ${currentTime.toFixed(1)}s`); // ❌ Crashes!
+```
+
+**Root Cause**: Player is not ready yet, so `getCurrentTime()` returns `undefined`.
+
+***
+
+### **Issue \#4: Broadcast Running Even When Paused**
+
+**Evidence**:
+
+```
+🔄 isPlaying changed: false isPlaybackDevice: true
+⏸️ IMMEDIATE pauseVideo() call (playback device)
+📡 Broadcasting syncTime: 1760572637111, currentTime: 0.0s
+📡 Broadcasting syncTime: 1760572638124, currentTime: 0.0s
+[continues broadcasting even though paused]
+```
+
+**Problem**: Broadcast interval continues running even when `isPlaying: false`. This wastes resources and causes unnecessary Firebase writes.
+
+***
+
+### **Issue \#5: useEffect Dependency Hell**
+
+**Problem**: The `useEffect` that manages broadcast/sync is triggering on **every Firebase update**, causing the infinite clear/restart loop.
+
+**Likely Code** (in `MusicPlayer.tsx`):
+
+```typescript
+// ❌ WRONG: Re-runs on every Firebase update
 useEffect(() => {
-  // Listener 1: ONLY playback state
-  const unsubPlayback = onSnapshot(
-    doc(db, 'sessions', sessionCode),
-    (snap) => {
-      const { currentSong, syncTime, isPlaying, playbackDevice } = snap.data();
-      // Handle ONLY playback updates
-      handlePlaybackUpdate({ currentSong, syncTime, isPlaying, playbackDevice });
-    },
-    { includeMetadataChanges: false } // Ignore local writes
-  );
-
-  // Listener 2: Queue and voting (separate)
-  const unsubQueue = onSnapshot(
-    doc(db, 'sessions', sessionCode),
-    (snap) => {
-      const { queue } = snap.data();
-      // Handle ONLY queue updates (no playback logic here!)
-      setQueue(queue);
-    }
-  );
-
-  // Listener 3: Social features (separate)
-  const unsubSocial = onSnapshot(
-    doc(db, 'sessions', sessionCode),
-    (snap) => {
-      const { guests, messages } = snap.data();
-      // Handle ONLY social updates
-      setGuests(guests);
-      setMessages(messages);
-    }
-  );
-
-  return () => {
-    unsubPlayback();
-    unsubQueue();
-    unsubSocial();
-  };
-}, [sessionCode]);
-```
-
-
-***
-
-## 🔴 CRITICAL BUGS TO FIX
-
-### **Bug \#1: Playback Behaves Erratically**
-
-**Symptoms**:
-
-- Playback sometimes starts by itself
-- When a second user connects, playback stops
-- Playback doesn't exit properly (stays in loop or undefined state)
-
-**Root Cause**: Multiple clients competing for playback control; no clear "single source of truth".[^1]
-
-**Fix Instructions**:
-
-1. **Enforce Single Playback Device**:
-```typescript
-// Only ONE device broadcasts playback position
-const isPlaybackDevice = 
-  (isHost && playbackDevice === 'HOST') || 
-  (!isHost && playbackDevice === guestName);
-
-if (isPlaybackDevice) {
-  // I broadcast position every 1s
-  broadcastPlaybackPosition();
-} else {
-  // I passively sync to playback device
-  syncToPlaybackDevice();
-}
-```
-
-2. **Prevent Auto-Start on Guest Join**:
-```typescript
-// When guest joins, do NOT trigger play
-useEffect(() => {
-  const unsubscribe = onSnapshot(sessionRef, (snap) => {
-    const data = snap.data();
-    
-    // ✅ Only playback device can start playback
-    if (data.isPlaying && !isPlaybackDevice) {
-      player1Ref.current?.pauseVideo(); // Force pause for non-playback devices
-      console.log('⏸️ Guest joined, but I am not playback device');
-    }
-  });
-}, [isPlaybackDevice]);
-```
-
-3. **Clear Exit Logic**:
-```typescript
-// On unmount or disconnect, clean up properly
-useEffect(() => {
-  return () => {
-    clearAllPlaybackTimers();
-    player1Ref.current?.stopVideo();
-    player2Ref.current?.stopVideo();
-    console.log('🛑 Playback cleaned up');
-  };
-}, []);
-```
-
-**Files**: `src/components/MusicPlayer.tsx` (lines 549-565 and full playback logic)[^1]
-
-***
-
-### **Bug \#2: Guest List Blurs on Host View**
-
-**Symptom**: Guest list is clear initially, then becomes blurred (zamagljen) after some time.
-
-**Fix Instructions**:
-
-- Search for CSS classes like `blur-sm`, `backdrop-blur`, or `filter: blur()` on the guest list container
-- Remove ALL blur effects from host view
-- Ensure guest list is always sharp and readable
-
-**Example Fix**:
-
-```tsx
-// ❌ WRONG:
-<div className="guest-list blur-sm">
-
-// ✅ CORRECT:
-<div className="guest-list">
-```
-
-**Files**: `src/pages/HostDashboard.tsx` (guest list rendering section)
-
-***
-
-### **Bug \#3: Guest Auto-Rejoin After App Switch**
-
-**Symptom**:
-
-- Guest leaves app (e.g., goes to WhatsApp) and returns
-- Guest must manually re-enter username to rejoin
-- First time: Manual join required ✅
-- Second time and after: Should auto-rejoin ❌ (currently broken)
-
-**Fix Instructions**:
-
-1. **Save Guest Name to LocalStorage**:
-```typescript
-// On first join:
-const handleJoin = (username: string, sessionCode: string) => {
-  localStorage.setItem(`vibebox_guest_${sessionCode}`, username);
-  localStorage.setItem('vibebox_lastSession', sessionCode);
-  // Proceed with join logic
-};
-```
-
-2. **Auto-Rejoin on App Resume**:
-```typescript
-// On component mount (GuestView):
-useEffect(() => {
-  const savedUsername = localStorage.getItem(`vibebox_guest_${sessionCode}`);
-  
-  if (savedUsername && !isJoined) {
-    console.log(`🔄 Auto-rejoining as ${savedUsername}`);
-    handleAutoRejoin(savedUsername);
+  if (isPlaybackDevice) {
+    startBroadcasting();
   }
-}, [sessionCode]);
-
-const handleAutoRejoin = async (username: string) => {
-  setGuestName(username);
-  setIsJoined(true);
-  
-  // Add to Firebase guests array (if not already present)
-  const sessionRef = doc(db, 'sessions', sessionCode);
-  await updateDoc(sessionRef, {
-    guests: arrayUnion(username)
-  });
-  
-  showToast(`Welcome back, ${username}! 🎉`);
-};
+  return () => clearAllPlaybackTimers();
+}, [isPlaybackDevice, isPlaying, currentSong, syncTime]); // ❌ Too many deps!
 ```
 
-**Files**: `src/pages/GuestView.tsx` (join logic and useEffect)
+When `startBroadcasting()` updates `syncTime` in Firebase, it triggers this `useEffect` again, which clears and restarts the interval.
 
 ***
 
-### **Bug \#4: Message Icon Visibility Issues**
+## 🔧 COMPREHENSIVE FIX FOR CLAUDE CODE
 
-**Symptom**:
+### **Fix \#1: Stop Infinite useEffect Loop** 🔴 HIGHEST PRIORITY
 
-- Message icon is invisible for some users
-- For some users, it appears only when hovering over the user in guest list
-- For others, it appears only when clicking on the user
-- Must be **always visible** for all users
-
-**Fix Instructions**:
-
-1. **Remove Hover/Click-Only Visibility**:
-```tsx
-// ❌ WRONG:
-<button className="opacity-0 hover:opacity-100">
-  <MessageIcon />
-</button>
-
-// ❌ WRONG:
-{isSelected && <MessageIcon />}
-
-// ✅ CORRECT:
-<button className="text-blue-500 hover:text-blue-700">
-  <MessageIcon className="w-5 h-5" />
-</button>
-```
-
-2. **Always Render Icon**:
-```tsx
-{guests.map((guest) => (
-  <div key={guest.name} className="flex items-center justify-between p-2">
-    <span>{guest.name}</span>
-    
-    {/* ✅ Always visible */}
-    <button 
-      onClick={() => openMessageModal(guest.name)}
-      className="text-blue-500 hover:text-blue-700 transition-colors"
-    >
-      <MessageIcon className="w-5 h-5" />
-    </button>
-  </div>
-))}
-```
-
-**Files**: `src/pages/HostDashboard.tsx` or guest list component
-
-***
-
-### **Bug \#5: "Listen on My Device" Only for Guests**
-
-**Symptom**:
-
-- "Listen on my device" toggle should **only appear for guests**, NOT for host
-- Sometimes it disappears even after initially appearing
-
-**Fix Instructions**:
-
-1. **Guest-Only Rendering**:
-```tsx
-// In MusicPlayer.tsx or GuestView.tsx
-{!isHost && (
-  <div className="flex items-center gap-3 mb-4">
-    <label className="text-sm font-medium">Listen on My Device</label>
-    <Toggle
-      checked={isListeningLocally}
-      disabled={isPlaybackDevice}
-      onChange={handleToggleLocalAudio}
-    />
-    {isPlaybackDevice && (
-      <span className="text-xs text-gray-400">
-        (You are the playback device)
-      </span>
-    )}
-  </div>
-)}
-```
-
-2. **Prevent Disappearance**:
 ```typescript
-// Keep toggle state persistent
-const [isListeningLocally, setIsListeningLocally] = useState(() => {
-  const saved = localStorage.getItem(`vibebox_listen_${sessionCode}_${guestName}`);
-  return saved ? JSON.parse(saved) : !isPlaybackDevice;
-});
+// MusicPlayer.tsx
 
+// ❌ DELETE THIS:
+// useEffect with too many dependencies that cause infinite loop
+
+// ✅ ADD THIS: Separate effects for different concerns
+
+// Effect 1: Initialize broadcast/sync based on playback device role (ONCE)
 useEffect(() => {
-  localStorage.setItem(
-    `vibebox_listen_${sessionCode}_${guestName}`,
-    JSON.stringify(isListeningLocally)
-  );
-}, [isListeningLocally, sessionCode, guestName]);
-```
-
-**Files**: `src/components/MusicPlayer.tsx`, `src/pages/GuestView.tsx`[^1]
-
-***
-
-### **Bug \#6: "Listen on My Device" Alters Playback**
-
-**Symptom**: Toggling "Listen on my device" interrupts, pauses, or alters the main playback for all users.
-
-**Fix Instructions**:
-
-**Critical Rule**: Local audio toggle must **NEVER** update Firebase or affect global playback state!
-
-```typescript
-// ✅ CORRECT: Local-only effect
-const handleToggleLocalAudio = (enabled: boolean) => {
-  setIsListeningLocally(enabled);
+  console.log(`🎛️ Playback device changed: ${isPlaybackDevice ? 'BROADCAST' : 'SYNC'}`);
   
-  // ✅ Only affect local player, no Firebase updates!
-  if (enabled) {
-    player1Ref.current?.unMute();
-    player1Ref.current?.setVolume(volume);
-  } else {
-    player1Ref.current?.mute();
-  }
-  
-  // ❌ DO NOT do this:
-  // updateDoc(sessionRef, { isPlaying: false }); // WRONG!
-  // player1Ref.current?.pauseVideo(); // WRONG!
-};
-```
-
-**Files**: `src/components/MusicPlayer.tsx` (toggle handler)[^1]
-
-***
-
-## 🔧 COMPLETE PLAYBACK SYNC REWRITE
-
-### **New Sync Architecture**
-
-```typescript
-// MusicPlayer.tsx - Rewritten sync logic
-
-let syncIntervalId: NodeJS.Timeout | null = null;
-let broadcastIntervalId: NodeJS.Timeout | null = null;
-const SYNC_CHECK_INTERVAL = 2000; // Check sync every 2s
-const BROADCAST_INTERVAL = 1000; // Broadcast position every 1s
-const DRIFT_THRESHOLD = 3.0; // Max 3s drift before correction
-const SYNC_COOLDOWN = 2000; // Min 2s between sync corrections
-let lastSyncTimestamp = 0;
-
-// Clear all timers
-const clearAllPlaybackTimers = () => {
-  if (syncIntervalId) clearInterval(syncIntervalId);
-  if (broadcastIntervalId) clearInterval(broadcastIntervalId);
-  syncIntervalId = null;
-  broadcastIntervalId = null;
-};
-
-// Playback device: Broadcast position
-const startBroadcasting = () => {
-  clearAllPlaybackTimers();
-  
-  broadcastIntervalId = setInterval(() => {
-    if (!isPlaybackDevice) {
-      clearInterval(broadcastIntervalId!);
-      return;
-    }
-    
-    const currentTime = player1Ref.current?.getCurrentTime() || 0;
-    const newSyncTime = Date.now() - (currentTime * 1000);
-    
-    updateDoc(sessionRef, {
-      syncTime: newSyncTime,
-      isPlaying: player1Ref.current?.getPlayerState() === 1
-    }).catch((err) => console.error('Broadcast error:', err));
-  }, BROADCAST_INTERVAL);
-};
-
-// Non-playback devices: Sync to playback device
-const startSyncing = () => {
-  clearAllPlaybackTimers();
-  
-  syncIntervalId = setInterval(() => {
-    if (isPlaybackDevice) {
-      clearInterval(syncIntervalId!);
-      return;
-    }
-    
-    const now = Date.now();
-    if (now - lastSyncTimestamp < SYNC_COOLDOWN) {
-      return; // Cooldown active
-    }
-    
-    const currentTime = player1Ref.current?.getCurrentTime() || 0;
-    const expectedTime = (now - syncTime) / 1000;
-    const drift = Math.abs(currentTime - expectedTime);
-    
-    if (drift > DRIFT_THRESHOLD) {
-      console.log(`🔄 Drift: ${drift.toFixed(1)}s, correcting...`);
-      player1Ref.current?.seekTo(expectedTime, true);
-      lastSyncTimestamp = now;
-    }
-  }, SYNC_CHECK_INTERVAL);
-};
-
-// Initialize sync based on role
-useEffect(() => {
   clearAllPlaybackTimers();
   
   if (isPlaybackDevice) {
-    console.log('📡 Starting broadcast mode');
     startBroadcasting();
   } else {
-    console.log('🔄 Starting sync mode');
     startSyncing();
   }
   
-  return () => clearAllPlaybackTimers();
-}, [isPlaybackDevice, guestName, playbackDevice]);
+  return () => {
+    console.log('🧹 Unmounting: clearing all timers');
+    clearAllPlaybackTimers();
+  };
+}, [isPlaybackDevice]); // ✅ ONLY re-run when playback device role changes
+
+// Effect 2: Handle play/pause WITHOUT restarting intervals
+useEffect(() => {
+  console.log(`🔄 Play state changed: ${isPlaying}`);
+  
+  // DO NOT restart intervals here!
+  // Just play/pause the player
+  if (isPlaybackDevice) {
+    if (isPlaying) {
+      player1Ref.current?.playVideo();
+      console.log('▶️ Playing (no interval restart)');
+    } else {
+      player1Ref.current?.pauseVideo();
+      console.log('⏸️ Paused (no interval restart)');
+    }
+  }
+  
+  // ✅ NO cleanup, NO interval restart
+}, [isPlaying, isPlaybackDevice]);
+
+// Effect 3: Handle song changes WITHOUT restarting intervals
+useEffect(() => {
+  if (!currentSong) return;
+  
+  console.log(`🎵 Song changed: ${currentSong.title}`);
+  
+  // Load new song, but DON'T restart broadcast interval
+  const activePlayer = activePlayerRef.current === 1 ? player1Ref : player2Ref;
+  activePlayer.current?.loadVideoById(currentSong.id);
+  
+  if (isPlaybackDevice && isPlaying) {
+    activePlayer.current?.playVideo();
+  }
+  
+  // ✅ NO cleanup, NO interval restart
+}, [currentSong?.id]); // Only when song ID changes
 ```
 
-**Files**: `src/components/MusicPlayer.tsx` (complete rewrite of sync logic)[^1]
 
 ***
 
-## 📋 TESTING CHECKLIST FOR CLAUDE CODE
+### **Fix \#2: Stop Broadcasting When Paused**
 
-After implementing all fixes, test the following scenarios:
+```typescript
+// MusicPlayer.tsx
 
-### **Playback Tests**:
-
-- [ ] Host starts playback → Guest joins → Playback continues smoothly (no stop/restart)
-- [ ] Guest assigned as playback device → Host audio stops, guest audio starts
-- [ ] Playback device leaves → New playback device assigned → Seamless transition
-- [ ] Skip/Next/Previous → All devices sync within 2 seconds
-- [ ] Pause/Resume → All devices respond correctly
-- [ ] Screen lock on mobile → Playback continues uninterrupted
-
-
-### **Voting \& Queue Tests**:
-
-- [ ] Upvote song → Playback NOT affected
-- [ ] Downvote song → Playback NOT affected
-- [ ] Add song to queue → Playback NOT affected
-- [ ] Remove song from queue → Playback NOT affected
-
-
-### **Guest Rejoin Tests**:
-
-- [ ] Guest joins first time → Manual username entry ✅
-- [ ] Guest switches to WhatsApp → Returns to VibeBox → Auto-rejoins ✅
-- [ ] Guest closes app → Reopens → Auto-rejoins ✅
-
-
-### **UI Tests**:
-
-- [ ] Guest list is NEVER blurred on host view
-- [ ] Message icon is ALWAYS visible for every guest
-- [ ] "Listen on my device" toggle only appears for guests, NOT host
-- [ ] Toggling "Listen on my device" does NOT affect global playback
-
-
-### **Console Tests**:
-
-- [ ] No infinite sync loop messages
-- [ ] No playback errors in console
-- [ ] Clear logs showing who is playback device
-
-***
-
-## 🚀 IMPLEMENTATION PRIORITY
-
-| \# | Task | Priority | Files |
-| :-- | :-- | :-- | :-- |
-| 1 | Complete playback sync rewrite | 🔴 CRITICAL | `MusicPlayer.tsx` |
-| 2 | Isolate playback from voting/queue | 🔴 CRITICAL | `MusicPlayer.tsx`, `GuestView.tsx`, `HostDashboard.tsx` |
-| 3 | Fix playback device enforcement | 🔴 CRITICAL | `MusicPlayer.tsx` |
-| 4 | Fix guest auto-rejoin | 🔴 HIGH | `GuestView.tsx` |
-| 5 | Fix guest list blur on host | 🔴 HIGH | `HostDashboard.tsx` |
-| 6 | Fix message icon visibility | 🔴 HIGH | `HostDashboard.tsx` or guest list component |
-| 7 | Fix "Listen on my device" (guests only) | 🟡 MEDIUM | `MusicPlayer.tsx`, `GuestView.tsx` |
-| 8 | Prevent "Listen on my device" from altering playback | 🔴 CRITICAL | `MusicPlayer.tsx` |
+const startBroadcasting = () => {
+  clearAllPlaybackTimers();
+  
+  console.log('📡 Starting broadcast mode (1s interval)');
+  
+  broadcastIntervalId = setInterval(() => {
+    // ✅ Check if still playback device
+    if (!isPlaybackDevice) {
+      console.log('⚠️ No longer playback device, stopping broadcast');
+      clearAllPlaybackTimers();
+      return;
+    }
+    
+    // ✅ Don't broadcast if paused (save Firebase writes)
+    const playerState = player1Ref.current?.getPlayerState();
+    if (playerState !== 1) { // 1 = PLAYING
+      console.log('⏸️ Player paused/stopped, skipping broadcast');
+      return; // Skip this broadcast, but keep interval running
+    }
+    
+    // ✅ Safely get current time with fallback
+    const currentTime = player1Ref.current?.getCurrentTime() || 0;
+    const newSyncTime = Date.now() - (currentTime * 1000);
+    
+    console.log(`📡 Broadcasting: ${currentTime.toFixed(1)}s`);
+    
+    updateDoc(sessionRef, {
+      syncTime: newSyncTime,
+      isPlaying: true
+    }).catch((err) => console.error('❌ Broadcast error:', err));
+    
+  }, 1000);
+};
+```
 
 
 ***
 
-## 🔥 FINAL INSTRUCTIONS FOR CLAUDE CODE
+### **Fix \#3: Fix TypeError - Safe toFixed Usage**
 
-1. **Start with playback rewrite** (Bug \#1, \#6, \#8) — This is the foundation
-2. **Test playback thoroughly** before moving to other bugs
-3. **Isolate ALL playback logic** from social features, voting, and queue management
-4. **Use separate Firebase listeners** for playback vs. other features
-5. **Add comprehensive console logs** with emoji prefixes for easy debugging
-6. **Respect existing dual-player architecture** — don't rewrite everything, just fix sync logic[^1]
-7. **Test on multiple devices** (host + 2 guests minimum) before considering complete
+```typescript
+// MusicPlayer.tsx
 
-**Remember**: Smooth, uninterrupted playback is the \#1 priority for this entire app.[^1]
+// ❌ WRONG:
+const currentTime = player1Ref.current?.getCurrentTime();
+console.log(`Time: ${currentTime.toFixed(1)}s`); // Crashes if undefined
+
+// ✅ CORRECT:
+const currentTime = player1Ref.current?.getCurrentTime() || 0;
+console.log(`Time: ${currentTime.toFixed(1)}s`); // Safe, defaults to 0
+
+// OR even safer:
+const currentTime = player1Ref.current?.getCurrentTime();
+if (currentTime !== undefined) {
+  console.log(`Time: ${currentTime.toFixed(1)}s`);
+} else {
+  console.log('⚠️ Player not ready yet');
+}
+```
+
+
+***
+
+### **Fix \#4: Handle YouTube 503 Errors**
+
+```typescript
+// MusicPlayer.tsx
+
+// Add retry logic for 503 errors
+let retryCount = 0;
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 5000; // 5 seconds
+
+const loadVideoWithRetry = (videoId: string, player: any) => {
+  try {
+    player.loadVideoById(videoId);
+    retryCount = 0; // Reset on success
+  } catch (error) {
+    console.error('❌ Failed to load video:', error);
+    
+    if (retryCount < MAX_RETRIES) {
+      retryCount++;
+      console.log(`⏳ Retrying in ${RETRY_DELAY / 1000}s... (attempt ${retryCount}/${MAX_RETRIES})`);
+      
+      setTimeout(() => {
+        loadVideoWithRetry(videoId, player);
+      }, RETRY_DELAY);
+    } else {
+      console.error('❌ Max retries reached, skipping song');
+      showToast('Failed to load video, skipping...', 3000);
+      skipToNext();
+    }
+  }
+};
+
+// Use in song loading:
+useEffect(() => {
+  if (!currentSong) return;
+  
+  console.log(`🎬 Loading: ${currentSong.title}`);
+  const activePlayer = activePlayerRef.current === 1 ? player1Ref : player2Ref;
+  
+  loadVideoWithRetry(currentSong.id, activePlayer.current);
+}, [currentSong?.id]);
+
+// Handle YouTube API errors
+const onPlayerError = (event: any) => {
+  const errorCode = event.data;
+  console.error(`❌ YouTube Error ${errorCode}`);
+  
+  switch (errorCode) {
+    case 2: // Invalid video ID
+    case 100: // Video not found
+    case 101: // Restricted
+    case 150: // Embedding disabled
+      console.log('⏭️ Skipping unavailable video');
+      showToast('Video unavailable, skipping...', 2000);
+      skipToNext();
+      break;
+    case 5: // HTML5 player error
+      console.log('⏳ Retrying playback...');
+      setTimeout(() => {
+        player1Ref.current?.playVideo();
+      }, 2000);
+      break;
+    default:
+      console.error(`Unknown error: ${errorCode}`);
+  }
+};
+```
+
+
+***
+
+### **Fix \#5: Isolate Firebase Listeners from Playback Logic**
+
+```typescript
+// MusicPlayer.tsx
+
+// ✅ CORRECT: Separate listener for playback state
+useEffect(() => {
+  console.log('👂 Setting up Firebase listener for playback state');
+  
+  const unsubscribe = onSnapshot(
+    doc(db, 'sessions', sessionCode),
+    (snap) => {
+      const data = snap.data();
+      if (!data) return;
+      
+      // ✅ Use local state setters, don't restart intervals here!
+      setIsPlaying(data.isPlaying);
+      setCurrentSong(data.currentSong);
+      setSyncTime(data.syncTime);
+      
+      // ✅ DO NOT call startBroadcasting() or startSyncing() here!
+      // That's handled by the separate useEffect with [isPlaybackDevice] dep
+    },
+    {
+      includeMetadataChanges: false // ✅ Ignore local writes
+    }
+  );
+  
+  return () => {
+    console.log('👂 Cleaning up Firebase listener');
+    unsubscribe();
+  };
+}, [sessionCode]); // Only re-run if session code changes
+```
+
+
+***
+
+## 📋 COMPLETE REWRITE INSTRUCTIONS FOR CLAUDE CODE
+
+### **Step 1: Remove ALL existing interval logic**
+
+Delete:
+
+- All `useEffect` hooks that call `startBroadcasting()` or `startSyncing()`
+- Any interval cleanup code inside Firebase listeners
+- Any code that restarts intervals on state changes
+
+
+### **Step 2: Implement THREE separate useEffect hooks**
+
+1. **Playback Device Role** (runs once when role changes):
+    - Starts broadcast (if playback device) OR sync (if listener)
+    - Cleans up on unmount
+2. **Play/Pause State** (runs when isPlaying changes):
+    - Calls `playVideo()` or `pauseVideo()`
+    - Does NOT restart intervals
+3. **Song Changes** (runs when currentSong.id changes):
+    - Loads new video
+    - Does NOT restart intervals
+
+### **Step 3: Implement ONE Firebase listener**
+
+- Listens to `sessions/{code}` document
+- Updates local state ONLY (`setIsPlaying`, `setCurrentSong`, etc.)
+- Does NOT call any playback functions
+- Uses `includeMetadataChanges: false` to ignore local writes
+
+
+### **Step 4: Fix broadcast interval**
+
+- Check `playerState === 1` before broadcasting
+- Skip broadcast if paused (but keep interval running)
+- Use safe `getCurrentTime() || 0` to prevent TypeError
+
+
+### **Step 5: Add YouTube error handling**
+
+- Implement `onPlayerError` handler
+- Retry on 503 errors (max 3 attempts)
+- Skip song on fatal errors (100, 101, 150)
+
+***
+
+## 🚀 TESTING CHECKLIST
+
+After fixes:
+
+- [ ] Console shows **only ONE** "Starting broadcast mode" message (no repeats)
+- [ ] Broadcast interval runs continuously without clearing/restarting
+- [ ] `currentTime` increments: 0s → 1s → 2s → 3s (not stuck at 0s)
+- [ ] No "Cleanup: clearing broadcast interval" spam
+- [ ] No TypeError crashes
+- [ ] Playback pauses → Broadcast stops (but interval keeps running)
+- [ ] Playback resumes → Broadcast resumes
+- [ ] YouTube 503 errors trigger retry logic (not crash)
+
+***
+
+## 🔑 KEY PRINCIPLES FOR CLAUDE CODE
+
+1. **ONE interval per mode**: Broadcast OR sync, never both, never restart
+2. **Separate concerns**: Playback device role, play/pause state, song changes
+3. **State updates ≠ interval restart**: Firebase updates should NOT restart intervals
+4. **Safe fallbacks**: Always use `|| 0` when calling `getCurrentTime()`
+5. **Error handling**: Retry 503 errors, skip unavailable videos
+
+**Files to Modify**:
+
+- `src/components/MusicPlayer.tsx` (complete interval logic rewrite)[^1]
+
+***
+
+**Critical**: The core issue is **useEffect dependency hell** causing infinite clear/restart loops. Fix this by separating concerns into multiple focused `useEffect` hooks with minimal dependencies.
 
 <div align="center">⁂</div>
 
