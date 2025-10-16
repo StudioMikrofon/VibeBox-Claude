@@ -51,6 +51,7 @@ export class PlayDirector implements IPlayDirector {
   private positionUpdateCallbacks: Array<(position: number) => void> = [];
   private trackEndCallbacks: Array<() => void> = [];
   private errorCallbacks: Array<(error: string) => void> = [];
+  private crossfadeNeededCallbacks: Array<(inactivePlayerId: 1 | 2) => void> = [];
 
   private constructor(config: PlayDirectorConfig) {
     this.config = config;
@@ -347,20 +348,84 @@ export class PlayDirector implements IPlayDirector {
     }
   }
 
+  /**
+   * Start A/B crossfade to next song
+   *
+   * This is the PROPER crossfade implementation:
+   * 1. Load next song into inactive player
+   * 2. Fade out active player, fade in inactive player
+   * 3. Switch active player reference
+   * 4. Clean up old player (hard mute, pause, stop)
+   */
   private async startCrossfade(): Promise<void> {
     if (this.isCrossfading) {
       console.warn('⚠️ Crossfade already in progress');
       return;
     }
 
-    this.transitionTo('XFADING');
+    if (!this.currentTrack) {
+      console.warn('⚠️ No current track for crossfade');
+      return;
+    }
 
-    // Crossfade logic will be implemented in Phase 6
-    // For now, just transition back
-    setTimeout(() => {
-      this.isCrossfading = false;
-      this.transitionTo('PLAYING');
-    }, this.config.crossfadeDuration * 1000);
+    this.transitionTo('XFADING');
+    this.isCrossfading = true;
+
+    const currentPlayer = this.activePlayer === 1 ? this.player1 : this.player2;
+    const nextPlayer = this.activePlayer === 1 ? this.player2 : this.player1;
+
+    const currentVolume = currentPlayer?.getVolume?.() || 100;
+    const durMs = this.config.crossfadeDuration * 1000;
+    const step = 50; // 50ms per step
+    const steps = durMs / step;
+
+    console.log(`🎚️ Starting ${this.config.crossfadeDuration}s A/B crossfade (${steps} steps)`);
+
+    // Clear existing crossfade interval if any
+    if (this.crossfadeInterval) {
+      clearInterval(this.crossfadeInterval);
+      this.crossfadeInterval = null;
+    }
+
+    let currentStep = 0;
+
+    this.crossfadeInterval = setInterval(() => {
+      currentStep++;
+      const progress = currentStep / steps;
+
+      // Fade out current, fade in next
+      const currentVol = Math.max(0, currentVolume * (1 - progress));
+      const nextVol = Math.min(currentVolume, currentVolume * progress);
+
+      currentPlayer?.setVolume?.(currentVol);
+      nextPlayer?.setVolume?.(nextVol);
+
+      console.log(`🎚️ Crossfade step ${currentStep}/${steps}: current=${currentVol.toFixed(0)}, next=${nextVol.toFixed(0)}`);
+
+      if (currentStep >= steps) {
+        // Crossfade complete
+        if (this.crossfadeInterval) {
+          clearInterval(this.crossfadeInterval);
+          this.crossfadeInterval = null;
+        }
+
+        console.log('✅ Crossfade complete - cleaning up old player');
+
+        // 🔴 CRITICAL: Full cleanup of old player
+        currentPlayer?.setVolume?.(0);
+        currentPlayer?.pauseVideo?.();
+        currentPlayer?.stopVideo?.(); // YouTube API stop (if available)
+
+        // Switch active player
+        this.activePlayer = this.activePlayer === 1 ? 2 : 1;
+        console.log(`🔄 Active player switched to Player ${this.activePlayer}`);
+
+        // Notify track end (external component will load next song)
+        this.isCrossfading = false;
+        this.transitionTo('PLAYING');
+        this.notifyTrackEnd();
+      }
+    }, step);
   }
 
   private async seek(position: number): Promise<void> {
@@ -431,7 +496,40 @@ export class PlayDirector implements IPlayDirector {
     this.broadcastInterval = setInterval(() => {
       const position = this.getCurrentPosition();
       this.notifyPositionUpdate(position);
+
+      // 🔴 NEW: Check for auto-crossfade
+      this.checkAutoCrossfade();
     }, this.config.broadcastInterval);
+  }
+
+  /**
+   * Check if it's time to start auto-crossfade
+   * Triggered every broadcast interval (1s)
+   */
+  private checkAutoCrossfade(): void {
+    if (!this.currentTrack) return;
+    if (this.isCrossfading) return;
+    if (this.config.crossfadeDuration === 0) return; // No crossfade if duration is 0
+
+    const player = this.activePlayer === 1 ? this.player1 : this.player2;
+    if (!player || typeof player.getDuration !== 'function') return;
+
+    const duration = player.getDuration();
+    const currentTime = player.getCurrentTime?.() || 0;
+    const timeLeft = duration - currentTime;
+
+    // Start crossfade when timeLeft <= crossfadeDuration
+    if (timeLeft <= this.config.crossfadeDuration && timeLeft > 0) {
+      console.log(`🎚️ Auto-crossfade trigger: ${timeLeft.toFixed(1)}s left, crossfade=${this.config.crossfadeDuration}s`);
+
+      // 🔴 IMPORTANT: Notify external component to load next song into inactive player
+      const inactivePlayerId = this.activePlayer === 1 ? 2 : 1;
+      this.notifyCrossfadeNeeded(inactivePlayerId as 1 | 2);
+
+      // External component should:
+      // 1. Load next song into inactive player
+      // 2. Call handleIntent({ type: 'CROSSFADE_TO_NEXT' })
+    }
   }
 
   private clearAllIntervals(): void {
@@ -484,6 +582,10 @@ export class PlayDirector implements IPlayDirector {
     this.errorCallbacks.push(callback);
   }
 
+  public onCrossfadeNeeded(callback: (inactivePlayerId: 1 | 2) => void): void {
+    this.crossfadeNeededCallbacks.push(callback);
+  }
+
   private notifyStateChange(state: PlaybackState): void {
     this.stateChangeCallbacks.forEach(cb => cb(state));
   }
@@ -498,5 +600,9 @@ export class PlayDirector implements IPlayDirector {
 
   private notifyError(error: string): void {
     this.errorCallbacks.forEach(cb => cb(error));
+  }
+
+  private notifyCrossfadeNeeded(inactivePlayerId: 1 | 2): void {
+    this.crossfadeNeededCallbacks.forEach(cb => cb(inactivePlayerId));
   }
 }

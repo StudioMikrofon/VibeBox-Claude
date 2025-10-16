@@ -85,6 +85,7 @@ export interface IPlayDirector {
   onPositionUpdate(callback: (position: number) => void): void;
   onTrackEnd(callback: () => void): void;
   onError(callback: (error: string) => void): void;
+  onCrossfadeNeeded(callback: (inactivePlayerId: 1 | 2) => void): void;
 }
 
 /**
